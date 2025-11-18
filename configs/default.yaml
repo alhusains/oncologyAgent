@@ -1,0 +1,43 @@
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  temperature: 0.1
+  max_tokens: 4096
+  timeout: 300
+
+data:
+  max_file_size_mb: 500
+  supported_formats: ["csv", "xlsx", "parquet"]
+  missing_value_threshold: 0.5
+  categorical_cardinality_threshold: 50
+  test_size: 0.2
+  val_size: 0.2
+  random_state: 42
+
+ml:
+  max_training_time_minutes: 60
+  cv_folds: 5
+  optuna_trials: 100
+  early_stopping_rounds: 50
+  n_jobs: 2  # Number of parallel jobs/threads (important for shared clusters like Compute Canada)
+  models_to_try: 
+    - "logistic_regression"
+    - "random_forest"
+    - "xgboost"
+    - "lightgbm"
+  metrics:
+    classification: ["accuracy", "f1", "roc_auc", "precision", "recall"]
+    regression: ["mae", "mse", "rmse", "r2"]
+
+# Paths are relative to project root
+data_dir: "data"
+output_dir: "outputs"
+config_dir: "configs"
+
+# Logging
+log_level: "INFO"
+log_to_file: true
+
+# UI
+gradio_port: 7860
+gradio_share: false
