@@ -49,7 +49,7 @@ class MLConfig(BaseModel):
     min_models_to_train: int = Field(default=3, description="Minimum number of models to train")
     max_models_to_train: int = Field(default=5, description="Maximum number of models to train")
     n_jobs: int = Field(
-        default=2, description="Number of parallel jobs/threads for models (important for shared clusters)"
+        default=8, description="Number of parallel jobs/threads for models (set via ML_N_JOBS env var or config)"
     )
     models_to_try: List[str] = Field(
         default=["autogluon", "catboost", "xgboost", "random_forest"],

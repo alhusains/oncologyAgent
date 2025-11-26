@@ -230,6 +230,48 @@ class MLToolkit:
                         "required": ["performance_feedback"]
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_data_insights",
+                    "description": "Get comprehensive data insights and analysis including statistics, missing data, correlations, data quality, and clinical insights. Use this when the user asks for data analysis, data summary, or wants to understand the dataset.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "include_clinical": {
+                                "type": "boolean",
+                                "description": "Whether to include clinical-specific insights (default: true)"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_interpretability_report",
+                    "description": "Generate a comprehensive PDF interpretability report with SHAP values, feature importance, performance metrics, and clinical decision guidance. Use this when the user asks for model interpretation, explainability, or wants a clinician-friendly report.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "model_name": {
+                                "type": "string",
+                                "description": "Name of the model to analyze (if not specified, uses best model)"
+                            },
+                            "include_shap": {
+                                "type": "boolean",
+                                "description": "Whether to include SHAP analysis (default: true, but can be slow)"
+                            },
+                            "output_path": {
+                                "type": "string",
+                                "description": "Custom path for saving the PDF report (optional, auto-generated if not provided)"
+                            }
+                        },
+                        "required": []
+                    }
+                }
             }
         ]
     
@@ -256,6 +298,10 @@ class MLToolkit:
                 return self._get_current_state(**arguments)
             elif tool_name == "refine_features":
                 return await self._refine_features(**arguments)
+            elif tool_name == "get_data_insights":
+                return await self._get_data_insights(**arguments)
+            elif tool_name == "generate_interpretability_report":
+                return await self._generate_interpretability_report(**arguments)
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
         except Exception as e:
@@ -855,6 +901,278 @@ Be specific about which features to interact, transform, or select.
             return {
                 "error": f"Failed to refine features: {str(e)}",
                 "suggestion": "Try running engineer_features again with default settings"
+            }
+    
+    async def _get_data_insights(
+        self,
+        include_clinical: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive data insights and analysis.
+        
+        Provides detailed information about the dataset including:
+        - Overview and statistics
+        - Missing data analysis
+        - Target variable analysis
+        - Feature correlations
+        - Data quality assessment
+        - Clinical insights (if applicable)
+        
+        Args:
+            include_clinical: Whether to include clinical-specific insights
+        
+        Returns:
+            Dictionary with comprehensive insights and formatted report
+        """
+        print("  📊 Executing: get_data_insights()")
+        
+        # Check if data has been loaded
+        if self.state["feature_result"] is None:
+            return {
+                "error": "Must run engineer_features first to have processed data available",
+                "suggestion": "Run engineer_features to prepare the data, then call get_data_insights"
+            }
+        
+        try:
+            from .data_insights import DataInsightsAnalyzer
+            
+            # Get data from state
+            feature_result = self.state["feature_result"]
+            
+            # Reconstruct full dataset for analysis
+            # Use training + test data for complete picture
+            # Handle nested data_splits structure
+            if "data_splits" in feature_result:
+                X_train = feature_result["data_splits"].get("X_train")
+                X_test = feature_result["data_splits"].get("X_test")
+                y_train = feature_result["data_splits"].get("y_train")
+                y_test = feature_result["data_splits"].get("y_test")
+            else:
+                X_train = feature_result.get("X_train")
+                X_test = feature_result.get("X_test")
+                y_train = feature_result.get("y_train")
+                y_test = feature_result.get("y_test")
+            
+            if X_train is None:
+                return {"error": "No training data available in state"}
+            
+            # Combine train and test for comprehensive analysis
+            if X_test is not None:
+                X_full = pd.concat([X_train, X_test], axis=0)
+                y_full = pd.concat([y_train, y_test], axis=0) if y_test is not None else y_train
+            else:
+                X_full = X_train
+                y_full = y_train
+            
+            # Get target and task info
+            target_variable = feature_result.get("target_variable")
+            task_type = feature_result.get("task_type")
+            
+            # Create analyzer
+            analyzer = DataInsightsAnalyzer()
+            
+            # Perform analysis
+            print("     Analyzing dataset structure and statistics...")
+            insights = analyzer.analyze(
+                df=X_full if target_variable not in X_full.columns else pd.concat([X_full, y_full], axis=1),
+                target_variable=target_variable,
+                task_type=task_type
+            )
+            
+            # Format readable report
+            report = analyzer.format_report(insights)
+            
+            # Store insights in state for later reference
+            self.state["data_insights"] = insights
+            
+            print("     ✅ Data insights analysis complete")
+            
+            return {
+                "success": True,
+                "insights": insights,
+                "formatted_report": report,
+                "summary": {
+                    "n_samples": insights['overview']['n_samples'],
+                    "n_features": insights['overview']['n_features'],
+                    "missing_percentage": insights['missing_data']['percentage_rows_with_missing'],
+                    "quality_score": insights['data_quality']['quality_score'],
+                    "task_type": task_type,
+                    "is_clinical_data": insights.get('clinical_insights', {}).get('is_clinical_data', False)
+                }
+            }
+            
+        except Exception as e:
+            self.log(f"Data insights analysis failed: {str(e)}", level="ERROR")
+            import traceback
+            traceback.print_exc()
+            return {
+                "error": f"Failed to generate data insights: {str(e)}",
+                "suggestion": "Ensure data is properly loaded and processed"
+            }
+    
+    async def _generate_interpretability_report(
+        self,
+        model_name: Optional[str] = None,
+        include_shap: bool = True,
+        output_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate comprehensive interpretability report with SHAP analysis.
+        
+        Creates a clinician-friendly PDF report with:
+        - Model performance metrics
+        - Feature importance analysis
+        - SHAP values and plots
+        - Prediction distributions
+        - Clinical decision guidance
+        
+        Supports classification, regression, and survival analysis.
+        
+        Args:
+            model_name: Name of model to analyze (if None, uses best model)
+            include_shap: Whether to compute SHAP values (can be slow)
+            output_path: Custom path for PDF report (if None, auto-generated)
+        
+        Returns:
+            Dictionary with report path and summary
+        """
+        print(f"  📄 Executing: generate_interpretability_report(model={model_name or 'best'})")
+        
+        # Determine which model to analyze
+        if model_name is None:
+            model_name = self.state.get("best_model")
+            if model_name is None:
+                return {
+                    "error": "No model specified and no best model available",
+                    "suggestion": "Train a model first, then generate interpretability report"
+                }
+        
+        # Check if model exists
+        if model_name not in self.state.get("trained_models", {}):
+            available = list(self.state.get("trained_models", {}).keys())
+            return {
+                "error": f"Model '{model_name}' not found",
+                "available_models": available,
+                "suggestion": f"Use one of: {', '.join(available)}" if available else "Train a model first"
+            }
+        
+        # Check if model has been evaluated
+        if model_name not in self.state.get("evaluation_results", {}):
+            return {
+                "error": f"Model '{model_name}' has not been evaluated on test set",
+                "suggestion": f"Run evaluate_model('{model_name}') first"
+            }
+        
+        try:
+            from .interpretability import InterpretabilityReportGenerator
+            
+            # Get model info
+            model_info = self.state["trained_models"][model_name]
+            eval_result = self.state["evaluation_results"][model_name]
+            feature_result = self.state["feature_result"]
+            
+            # Extract data - handle nested data_splits structure
+            model_obj = model_info["model"]
+            
+            # Check if data is in data_splits (new format) or at root level (old format)
+            if "data_splits" in feature_result:
+                X_test = feature_result["data_splits"]["X_test"]
+                y_test = feature_result["data_splits"]["y_test"]
+            else:
+                X_test = feature_result.get("X_test")
+                y_test = feature_result.get("y_test")
+            
+            # Get predictions - handle both dict (classification with proba) and array formats
+            predictions_data = eval_result["predictions"]
+            y_pred_proba = None
+            
+            if isinstance(predictions_data, dict):
+                # Classification with probabilities
+                y_pred = predictions_data["predictions"]
+                y_pred_proba = predictions_data.get("probabilities")  # Get probabilities for ROC curve
+            else:
+                # Regression or survival (just array)
+                y_pred = predictions_data
+            
+            metrics = eval_result["metrics"]
+            task_type = feature_result["task_type"]
+            
+            # Get feature importance if available
+            feature_importance = None
+            if model_name in self.state.get("feature_importances", {}):
+                feature_importance = self.state["feature_importances"][model_name]
+            
+            # Handle both DataFrame and numpy array formats
+            if hasattr(X_test, 'columns'):
+                # Already a DataFrame
+                n_features = len(X_test.columns)
+                X_test_df = X_test
+            else:
+                # Numpy array - convert to DataFrame for better compatibility
+                n_features = X_test.shape[1] if len(X_test.shape) > 1 else 1
+                
+                # Try to get feature names from feature_result
+                feature_names = feature_result.get("feature_names")
+                if feature_names and len(feature_names) == n_features:
+                    X_test_df = pd.DataFrame(X_test, columns=feature_names)
+                else:
+                    # Use generic names
+                    X_test_df = pd.DataFrame(X_test, columns=[f"feature_{i}" for i in range(n_features)])
+            
+            # Additional info
+            additional_info = {
+                "n_samples_test": len(X_test_df),
+                "n_features": n_features,
+                "target_variable": feature_result.get("target_variable"),
+                "cv_score": model_info.get("cv_score", 0),
+                "training_time": model_info.get("training_time", 0)
+            }
+            
+            # Create report generator
+            print("     Generating interpretability report...")
+            if include_shap:
+                print("     (This may take a moment for SHAP analysis...)")
+            
+            generator = InterpretabilityReportGenerator()
+            
+            # Generate report
+            report_path = generator.generate_report(
+                model_name=model_name,
+                model_obj=model_obj,
+                X_test=X_test_df,  # Use DataFrame version
+                y_test=y_test,
+                y_pred=y_pred,
+                task_type=task_type,
+                metrics=metrics,
+                feature_importance=feature_importance,
+                output_path=output_path,
+                additional_info=additional_info,
+                y_pred_proba=y_pred_proba  # Pass probabilities for ROC curve
+            )
+            
+            print(f"     ✅ Report generated: {report_path}")
+            
+            return {
+                "success": True,
+                "report_path": report_path,
+                "model_name": model_name,
+                "task_type": task_type,
+                "summary": {
+                    "test_samples": len(X_test_df),
+                    "features": n_features,  # Use the variable we calculated earlier
+                    "performance": metrics,
+                    "report_location": report_path
+                },
+                "message": f"Interpretability report saved to: {report_path}"
+            }
+            
+        except Exception as e:
+            self.log(f"Report generation failed: {str(e)}", level="ERROR")
+            import traceback
+            traceback.print_exc()
+            return {
+                "error": f"Failed to generate interpretability report: {str(e)}",
+                "suggestion": "Ensure model is properly trained and evaluated"
             }
     
     def log(self, message: str, level: str = "INFO"):

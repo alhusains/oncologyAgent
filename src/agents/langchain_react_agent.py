@@ -19,15 +19,78 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from langchain.agents import AgentExecutor, create_openai_functions_agent
+# LangChain imports with version compatibility
 from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.callbacks.base import BaseCallbackHandler
-from langchain.schema import AgentAction, AgentFinish, LLMResult
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.agents import AgentAction, AgentFinish
+from langchain_core.outputs import LLMResult
+
+# Try to import LangGraph (LangChain 1.0+)
+try:
+    from langgraph.prebuilt import create_react_agent
+    LANGGRAPH_AVAILABLE = True
+except ImportError:
+    LANGGRAPH_AVAILABLE = False
+    # Try older LangChain agent imports
+    try:
+        from langchain.agents import AgentExecutor, create_openai_functions_agent
+    except ImportError:
+        pass
 
 from ..core.config import Config
 from .tools import MLToolkit
 from .langchain_tools import create_langchain_tools
+
+
+# ============================================================================
+# LangChain Version Compatibility
+# ============================================================================
+
+def create_react_agent_compatible(llm, tools, prompt=None, system_message=None):
+    """
+    Create a ReAct agent compatible with both old and new LangChain versions.
+    
+    LangChain 1.0+ uses LangGraph's create_react_agent.
+    Older versions use create_openai_functions_agent with AgentExecutor.
+    
+    Returns:
+        For LangGraph: The agent executor (graph)
+        For old LangChain: Tuple of (agent, needs_executor=True)
+    """
+    if LANGGRAPH_AVAILABLE:
+        # LangChain 1.0+ with LangGraph
+        # LangGraph's create_react_agent returns an executable graph (no separate executor needed)
+        # Extract system message from prompt if provided
+        system_prompt = None
+        if system_message is None and prompt is not None:
+            # Try to extract system message from prompt template
+            if hasattr(prompt, 'messages') and len(prompt.messages) > 0:
+                first_msg = prompt.messages[0]
+                if hasattr(first_msg, 'prompt') and hasattr(first_msg.prompt, 'template'):
+                    system_prompt = first_msg.prompt.template
+        else:
+            system_prompt = system_message
+        
+        # Create LangGraph ReAct agent
+        # Note: LangGraph's create_react_agent has a simpler API than old LangChain
+        # It primarily takes model and tools. System prompts are passed during invocation.
+        agent_executor = create_react_agent(
+            model=llm,
+            tools=tools
+        )
+        return agent_executor, False  # False = doesn't need separate executor
+    else:
+        # Old LangChain with AgentExecutor
+        try:
+            from langchain.agents import create_openai_functions_agent
+            agent = create_openai_functions_agent(llm=llm, tools=tools, prompt=prompt)
+            return agent, True  # True = needs AgentExecutor wrapper
+        except (ImportError, AttributeError) as e:
+            raise ImportError(
+                f"Could not import LangChain agent components. "
+                f"Please upgrade: pip install --upgrade langchain langchain-openai langgraph"
+            ) from e
 
 
 # ============================================================================
@@ -135,7 +198,7 @@ class ReflectionCallback(BaseCallbackHandler):
         self,
         toolkit: MLToolkit,
         reflection_threshold: float = 0.75,
-        agent_executor: Optional[AgentExecutor] = None
+        agent_executor: Optional[Any] = None  # Changed from AgentExecutor for compatibility
     ):
         self.toolkit = toolkit
         self.reflection_threshold = reflection_threshold
@@ -219,7 +282,7 @@ class LangChainReActMLAgent:
         self.tools = create_langchain_tools(self.toolkit)
         
         # Create agent prompt
-        self.prompt = self._create_prompt()
+        self.prompt, self.system_message = self._create_prompt()
         
         # Create callbacks
         self.conversation_logger = ConversationLoggerCallback()
@@ -289,7 +352,7 @@ IMPORTANT: When you're done, just provide a natural language summary. Do not try
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
         
-        return prompt
+        return prompt, system_message
     
     async def run(
         self,
@@ -333,24 +396,34 @@ IMPORTANT: When you're done, just provide a natural language summary. Do not try
         self.toolkit.state["testset_path"] = testset_path
         self.toolkit.state["objective"] = objective
         
-        # Create agent (fresh for each run)
-        self.agent = create_openai_functions_agent(
+        # Create agent (fresh for each run) - compatible with both LangGraph and old LangChain
+        agent_result, needs_executor = create_react_agent_compatible(
             llm=self.llm,
             tools=self.tools,
             prompt=self.prompt
         )
         
-        # Create executor with callbacks
-        self.executor = AgentExecutor(
-            agent=self.agent,
-            tools=self.tools,
-            verbose=False,  # We handle our own printing
-            max_iterations=self.max_iterations,
-            max_execution_time=None,  # No time limit
-            handle_parsing_errors=True,
-            return_intermediate_steps=True,
-            callbacks=[self.conversation_logger]
-        )
+        # Store for later use
+        self.needs_executor = needs_executor
+        
+        if needs_executor:
+            # Old LangChain: need to wrap agent in AgentExecutor
+            from langchain.agents import AgentExecutor
+            self.agent = agent_result
+            self.executor = AgentExecutor(
+                agent=self.agent,
+                tools=self.tools,
+                verbose=False,  # We handle our own printing
+                max_iterations=self.max_iterations,
+                max_execution_time=None,  # No time limit
+                handle_parsing_errors=True,
+                return_intermediate_steps=True,
+                callbacks=[self.conversation_logger]
+            )
+        else:
+            # LangGraph: agent_result is already the executor (graph)
+            self.executor = agent_result
+            self.agent = None  # Not used in LangGraph
         
         print("Starting LangChain ReAct ML Agent")
         print("=" * 70)
@@ -368,10 +441,23 @@ Please build the best ML model for this task. Start by analyzing the data."""
         
         # Run agent
         try:
-            result = await self.executor.ainvoke(
-                {"input": input_text},
-                config={"callbacks": [self.conversation_logger]}
-            )
+            if LANGGRAPH_AVAILABLE and not self.needs_executor:
+                # LangGraph execution
+                # LangGraph expects messages format with system message first
+                messages = [
+                    ("system", self.system_message),
+                    ("user", input_text)
+                ]
+                result = await self.executor.ainvoke(
+                    {"messages": messages},
+                    config={"callbacks": [self.conversation_logger], "recursion_limit": self.max_iterations}
+                )
+            else:
+                # Old LangChain execution
+                result = await self.executor.ainvoke(
+                    {"input": input_text},
+                    config={"callbacks": [self.conversation_logger]}
+                )
             
             # Get final state from toolkit
             final_state = self.toolkit.state
@@ -547,23 +633,33 @@ class LangChainReActAgentWithReflection(LangChainReActMLAgent):
             reflection_threshold=0.75
         )
         
-        # Create agent
-        self.agent = create_openai_functions_agent(
+        # Create agent - compatible with both LangGraph and old LangChain
+        agent_result, needs_executor = create_react_agent_compatible(
             llm=self.llm,
             tools=self.tools,
             prompt=self.prompt
         )
         
-        # Create executor with both callbacks
-        self.executor = AgentExecutor(
-            agent=self.agent,
-            tools=self.tools,
-            verbose=False,
-            max_iterations=self.max_iterations,
-            handle_parsing_errors=True,
-            return_intermediate_steps=True,
-            callbacks=[self.conversation_logger, self.reflection_callback]
-        )
+        # Store for later use
+        self.needs_executor = needs_executor
+        
+        if needs_executor:
+            # Old LangChain: need to wrap agent in AgentExecutor
+            from langchain.agents import AgentExecutor
+            self.agent = agent_result
+            self.executor = AgentExecutor(
+                agent=self.agent,
+                tools=self.tools,
+                verbose=False,
+                max_iterations=self.max_iterations,
+                handle_parsing_errors=True,
+                return_intermediate_steps=True,
+                callbacks=[self.conversation_logger, self.reflection_callback]
+            )
+        else:
+            # LangGraph: agent_result is already the executor (graph)
+            self.executor = agent_result
+            self.agent = None  # Not used in LangGraph
         
         print("Starting LangChain ReAct ML Agent with Reflection")
         print("=" * 70)
@@ -583,10 +679,22 @@ Please build the best ML model for this task. Start by analyzing the data."""
         # Run agent with reflection support
         try:
             # Initial run
-            result = await self.executor.ainvoke(
-                {"input": input_text},
-                config={"callbacks": [self.conversation_logger, self.reflection_callback]}
-            )
+            if LANGGRAPH_AVAILABLE and not self.needs_executor:
+                # LangGraph execution with system message
+                messages = [
+                    ("system", self.system_message),
+                    ("user", input_text)
+                ]
+                result = await self.executor.ainvoke(
+                    {"messages": messages},
+                    config={"callbacks": [self.conversation_logger, self.reflection_callback], "recursion_limit": self.max_iterations}
+                )
+            else:
+                # Old LangChain execution
+                result = await self.executor.ainvoke(
+                    {"input": input_text},
+                    config={"callbacks": [self.conversation_logger, self.reflection_callback]}
+                )
             
             # Check if we should inject reflection
             if self.reflection_callback.should_reflect:

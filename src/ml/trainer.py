@@ -113,25 +113,56 @@ class ModelTrainer(LLMAgent):
                 try:
                     if task_type == "classification":
                         y_pred = model.predict(X_test_input)
+                        
+                        # Convert to numpy if it's a Series (AutoGluon returns Series)
+                        if hasattr(y_pred, 'values'):
+                            y_pred = y_pred.values
+                        
                         y_pred_proba = None
                         if hasattr(model, "predict_proba"):
                             y_pred_proba = model.predict_proba(X_test_input)
+                            
+                            # Convert to numpy if it's a DataFrame (AutoGluon returns DataFrames)
+                            if hasattr(y_pred_proba, 'values'):
+                                y_pred_proba = y_pred_proba.values
                         
                         # Calculate metrics
                         metrics = self._calculate_classification_metrics(y_test, y_pred, y_pred_proba)
                         
+                        # Store probabilities for interpretability
+                        predictions_to_store = {
+                            "predictions": y_pred,
+                            "probabilities": y_pred_proba
+                        }
+                        
                     elif task_type == "regression":
                         y_pred = model.predict(X_test_input)
+                        
+                        # Convert to numpy if it's a Series (AutoGluon returns Series)
+                        if hasattr(y_pred, 'values'):
+                            y_pred = y_pred.values
+                        
                         metrics = self._calculate_regression_metrics(y_test, y_pred)
+                        predictions_to_store = y_pred
                         
                     else:  # survival
                         # For survival analysis, need training data for IBS
                         y_train = data_splits.get("y_train")
                         # Survival models don't use AutoGluon, so use original X_test
+                        
+                        # Get risk scores as predictions for survival
+                        if hasattr(model, 'predict'):
+                            y_pred = model.predict(X_test)
+                        else:
+                            # Some survival models don't have predict, use zeros as placeholder
+                            y_pred = np.zeros(len(y_test))
+                        
                         metrics = self._calculate_survival_metrics(model, X_test, y_test, y_train)
+                        predictions_to_store = y_pred
                     
                     evaluation_results[model_name] = {
                         "metrics": metrics,
+                        "predictions": predictions_to_store,  # Store predictions for interpretability reports
                         "cv_score": model_info.get("cv_score", 0),
                         "training_time": model_info.get("training_time", 0),
                         "hyperparameters": model_info.get("best_params", {})
@@ -357,12 +388,26 @@ class ModelTrainer(LLMAgent):
         self.log(f"AutoGluon models will be saved to: {temp_dir}")
         
         try:
-            # Configure AutoGluon for Compute Canada environment
+            # Detect GPU availability
+            try:
+                import torch
+                gpu_available = torch.cuda.is_available()
+                num_gpus = torch.cuda.device_count() if gpu_available else 0
+            except ImportError:
+                gpu_available = False
+                num_gpus = 0
+            
+            # Configure AutoGluon based on available hardware
             time_limit = self.config.ml.max_training_time_minutes * 60
             
             self.log(f"Training with time limit: {time_limit}s ({self.config.ml.max_training_time_minutes} minutes)")
-            self.log(f"Using {self.config.ml.n_jobs} CPU cores (thread-safe for shared clusters)")
-            self.log("XGBoost configured with n_jobs=1 to prevent segmentation faults on shared clusters")
+            self.log(f"Using {self.config.ml.n_jobs} CPU cores")
+            
+            if gpu_available:
+                self.log(f"🎮 GPU detected! AutoGluon will use {num_gpus} GPU(s) for neural network training")
+                self.log("Enabling neural network models: NN_TORCH (PyTorch MLPs)")
+            else:
+                self.log("Running on CPU - neural networks will be excluded")
             
             # Initialize predictor
             predictor = TabularPredictor(
@@ -372,25 +417,53 @@ class ModelTrainer(LLMAgent):
                 verbosity=2  # Show progress
             )
             
-            # Configure XGBoost hyperparameters for Compute Canada
-            # This prevents segmentation faults on shared clusters
-            xgboost_params = {
+            # Configure hyperparameters - allow more parallelism on dedicated workstation
+            hyperparameters = {
                 'XGB': {
-                    'n_jobs': 1,           # CRITICAL: Use single thread for XGBoost
-                    'nthread': 1,          # Alternative parameter name
+                    'n_jobs': self.config.ml.n_jobs,  # Can use multiple cores on workstation
                 },
+                'GBM': [  # LightGBM configurations
+                    {'num_leaves': 26, 'learning_rate': 0.03},
+                    {'num_leaves': 66, 'learning_rate': 0.01},
+                ],
+                'CAT': {},  # CatBoost with defaults
+                'RF': [  # Random Forest configurations
+                    {'max_depth': 15, 'n_estimators': 100},
+                ],
             }
             
-            # Train with appropriate settings for Compute Canada
+            # Add neural network configs if GPU is available
+            if gpu_available:
+                # AutoGluon NN_TORCH uses specific parameter names
+                # Note: 'layers' is not a valid parameter, use defaults or specify differently
+                hyperparameters['NN_TORCH'] = [
+                    {'num_epochs': 50, 'learning_rate': 0.001, 'hidden_size': 256},
+                    {'num_epochs': 100, 'learning_rate': 0.0005, 'hidden_size': 512},
+                ]
+            
+            # Choose quality preset based on GPU availability
+            # With GPU: high_quality enables more models and better ensembles
+            # Without GPU: best_quality (focuses on tree models which are excellent without GPU)
+            preset = 'high_quality' if gpu_available else 'best_quality'
+            self.log(f"Using preset: '{preset}' (optimized for {'GPU' if gpu_available else 'CPU'})")
+            
+            # Determine which model types to exclude
+            # Only exclude neural networks if no GPU available
+            excluded_types = ['FASTAI', 'NN_MXNET'] if not gpu_available else ['FASTAI', 'NN_MXNET']
+            # Note: We exclude FASTAI and NN_MXNET always (less stable), but keep NN_TORCH with GPU
+            if not gpu_available:
+                excluded_types.append('NN_TORCH')
+            
+            # Train with optimized settings
             predictor.fit(
                 train_data=train_data,
                 tuning_data=tuning_data,
                 time_limit=time_limit,
-                presets='medium_quality',  # Balance between speed and quality
-                hyperparameters=xgboost_params,  # Force XGBoost to use 1 thread
-                num_cpus=self.config.ml.n_jobs,  # Control thread usage for other models
-                num_gpus=0,  # No GPU on CPU nodes
-                excluded_model_types=['NN_TORCH', 'FASTAI', 'NN_MXNET'],  # Skip deep learning to avoid heavy dependencies
+                presets=preset,
+                hyperparameters=hyperparameters,
+                num_cpus=self.config.ml.n_jobs,
+                num_gpus=num_gpus,  # Use available GPUs
+                excluded_model_types=excluded_types,
                 verbosity=2
             )
             
@@ -406,8 +479,28 @@ class ModelTrainer(LLMAgent):
             self.log("=" * 70)
             
             # Get CV score from leaderboard
-            best_model_info = leaderboard[leaderboard['model'] == best_model_name].iloc[0]
+            # Note: After refit_full, best model gets "_FULL" suffix with NaN score
+            # We need to get the score from the original model (without _FULL)
+            original_model_name = best_model_name.replace('_FULL', '') if '_FULL' in best_model_name else best_model_name
+            
+            # Try to find the original model in leaderboard
+            matching_models = leaderboard[leaderboard['model'] == original_model_name]
+            if len(matching_models) == 0:
+                # If original not found, try the _FULL version
+                matching_models = leaderboard[leaderboard['model'] == best_model_name]
+            
+            best_model_info = matching_models.iloc[0]
             cv_score = best_model_info['score_val']
+            
+            # Handle potential NaN - use score_test if score_val is NaN
+            if pd.isna(cv_score):
+                if 'score_test' in best_model_info and not pd.isna(best_model_info['score_test']):
+                    cv_score = best_model_info['score_test']
+                    self.log(f"Note: Using test score {cv_score:.4f} as validation score was NaN")
+                else:
+                    # Fallback to weighted ensemble score if available
+                    cv_score = 0.0
+                    self.log("Warning: Could not find valid score for AutoGluon model")
             
             # Log top models
             self.log("\nTop 5 models trained by AutoGluon:")

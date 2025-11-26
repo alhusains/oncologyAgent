@@ -3,7 +3,13 @@
 import asyncio
 from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
-from langchain.tools import StructuredTool
+
+# Try newer import first (LangChain 1.0+)
+try:
+    from langchain_core.tools import StructuredTool
+except ImportError:
+    # Fallback to older import
+    from langchain.tools import StructuredTool
 
 from .tools import MLToolkit
 
@@ -87,6 +93,30 @@ class GetCurrentStateInput(BaseModel):
     pass
 
 
+class GetDataInsightsInput(BaseModel):
+    """Input schema for get_data_insights tool"""
+    include_clinical: bool = Field(
+        default=True,
+        description="Whether to include clinical-specific insights"
+    )
+
+
+class GenerateInterpretabilityReportInput(BaseModel):
+    """Input schema for generate_interpretability_report tool"""
+    model_name: Optional[str] = Field(
+        default=None,
+        description="Name of model to analyze (if None, uses best model)"
+    )
+    include_shap: bool = Field(
+        default=True,
+        description="Whether to compute SHAP values (can be slow for large datasets)"
+    )
+    output_path: Optional[str] = Field(
+        default=None,
+        description="Custom path for PDF report (optional, auto-generated if not provided)"
+    )
+
+
 # ============================================================================
 # Tool Creation Function
 # ============================================================================
@@ -103,7 +133,7 @@ def create_langchain_tools(toolkit: MLToolkit) -> list:
         toolkit: MLToolkit instance containing the ML pipeline components
         
     Returns:
-        List of 8 LangChain StructuredTool objects
+        List of 10 LangChain StructuredTool objects
     """
     
     tools = []
@@ -376,6 +406,98 @@ def create_langchain_tools(toolkit: MLToolkit) -> list:
         ),
         func=get_current_state,
         args_schema=GetCurrentStateInput
+    ))
+    
+    # ========================================================================
+    # Tool 9: Get Data Insights
+    # ========================================================================
+    
+    async def get_data_insights_async(
+        include_clinical: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive data insights and analysis.
+        
+        Provides detailed statistics, missing data analysis, correlations,
+        data quality assessment, and clinical insights if applicable.
+        """
+        return await toolkit._get_data_insights(include_clinical)
+    
+    def get_data_insights_sync(include_clinical: bool = True) -> Dict[str, Any]:
+        """Synchronous wrapper for get_data_insights"""
+        return asyncio.run(get_data_insights_async(include_clinical))
+    
+    tools.append(StructuredTool(
+        name="get_data_insights",
+        description=(
+            "Get comprehensive data insights and analysis including: "
+            "- Dataset overview and statistics "
+            "- Missing data patterns "
+            "- Target variable distribution "
+            "- Feature correlations "
+            "- Data quality metrics "
+            "- Outlier detection "
+            "- Clinical insights (for medical data) "
+            "Use this when the user asks for data analysis, summary, or wants to understand the dataset. "
+            "Must run engineer_features first to have processed data available."
+        ),
+        func=get_data_insights_sync,
+        coroutine=get_data_insights_async,
+        args_schema=GetDataInsightsInput
+    ))
+    
+    # ========================================================================
+    # Tool 10: Generate Interpretability Report
+    # ========================================================================
+    
+    async def generate_interpretability_report_async(
+        model_name: Optional[str] = None,
+        include_shap: bool = True,
+        output_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate comprehensive interpretability PDF report.
+        
+        Creates a clinician-friendly report with:
+        - Model performance metrics
+        - Feature importance analysis
+        - SHAP values and plots
+        - Prediction distributions
+        - Clinical decision guidance
+        
+        Supports all task types: classification, regression, survival.
+        """
+        return await toolkit._generate_interpretability_report(
+            model_name, include_shap, output_path
+        )
+    
+    def generate_interpretability_report_sync(
+        model_name: Optional[str] = None,
+        include_shap: bool = True,
+        output_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for generate_interpretability_report"""
+        return asyncio.run(
+            generate_interpretability_report_async(model_name, include_shap, output_path)
+        )
+    
+    tools.append(StructuredTool(
+        name="generate_interpretability_report",
+        description=(
+            "Generate a comprehensive PDF interpretability report with: "
+            "- Performance metrics (task-specific) "
+            "- Feature importance rankings "
+            "- SHAP analysis (shows how features impact predictions) "
+            "- Prediction distributions and error analysis "
+            "- Clinical decision support guidance "
+            "Works for classification, regression, and survival analysis models. "
+            "Use this when the user asks for model explanation, interpretability, "
+            "or wants a clinician-friendly report. "
+            "Model must be trained and evaluated first."
+        ),
+        func=generate_interpretability_report_sync,
+        coroutine=generate_interpretability_report_async,
+        args_schema=GenerateInterpretabilityReportInput
     ))
     
     return tools

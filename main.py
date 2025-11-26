@@ -1,164 +1,138 @@
-"""Main entry point for the tabular ML agent framework"""
+"""
+Oncology ML Agent - Interactive Machine Learning Pipeline
+
+An AI-powered conversational agent for automated machine learning analysis
+of oncology datasets. Supports classification, regression, and survival analysis
+with comprehensive interpretability reporting.
+"""
 
 import asyncio
-import os
 import sys
+import os
 from pathlib import Path
 import warnings
 
-# Suppress warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='pydantic')
 
-# Add src to Python path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from src.core.config import Config
-from src.agents import ReActMLAgent, ReActAgentWithReflection
-from datetime import datetime
-import json
+from src.agents import ConversationalMLAgent
 
 
 async def main():
-    """Main function to run the ReAct ML Agent"""
+    """Interactive ML agent for oncology data analysis"""
     
-    print("Tabular ML Agent Framework (ReAct Agent)")
+    print("=" * 70)
+    print("Oncology ML Agent - Interactive Pipeline")
+    print("=" * 70)
+    print("An AI assistant for automated machine learning analysis.")
+    print("Supports: Classification, Regression, and Survival Analysis")
     print("=" * 70)
     
     # Get API key
-    api_key = input("Enter your OpenAI API key: ").strip()
+    api_key = input("\nEnter your OpenAI API key: ").strip()
     if not api_key:
-        print("Error: API key required!")
+        print("Error: API key required")
         return
     
-    # Setup
+    # Setup configuration
     os.environ["OPENAI_API_KEY"] = api_key
     config = Config.from_env()
-    config.llm.model = "gpt-4o-mini"  # or "gpt-4o" for better reasoning
+    config.llm.model = "gpt-4o-mini"
     
-    print(f"LLM Model: {config.llm.model}")
-    print(f"Data Directory: {config.data_dir}")
-    print(f"Output Directory: {config.output_dir}")
+    print(f"\nConfiguration:")
+    print(f"  LLM Model: {config.llm.model}")
+    print(f"  Output Directory: {config.output_dir}")
     
-    # Get dataset path
-    default_dataset = "../oncologyml/task1_clinical.csv"
-    dataset_path = input(f"\nEnter dataset path (default: {default_dataset}): ").strip()
+    # Initialize conversational agent
+    agent = ConversationalMLAgent(config)
+    
+    # Configure dataset
+    print("\n" + "=" * 70)
+    print("Dataset Configuration")
+    print("=" * 70)
+    
+    dataset_path = input("Training dataset path: ").strip()
     if not dataset_path:
-        dataset_path = default_dataset
+        print("Error: Training dataset path required")
+        return
     
-    # Check if file exists
     if not os.path.exists(dataset_path):
         print(f"Error: File not found: {dataset_path}")
         return
     
-    # Get objective
-    default_objective = "Build the best machine learning model for this dataset"
-    objective = input(f"Enter your ML objective (default: {default_objective}): ").strip()
-    if not objective:
-        objective = default_objective
-    
-    # Optional: test set path
-    testset_path = input("Enter test set path (optional, press Enter to skip): ").strip()
+    testset_path = input("Test dataset path (optional, press Enter to skip): ").strip()
     if testset_path and not os.path.exists(testset_path):
-        print(f"Warning: Test set file not found: {testset_path}, will auto-split instead")
+        print(f"Warning: Test set not found: {testset_path}")
+        print("Will use automatic train/test split instead")
         testset_path = None
     elif not testset_path:
         testset_path = None
     
-    # Choose agent type
-    print("\nChoose agent type:")
-    print("1. Standard ReAct Agent")
-    print("2. ReAct with Reflection (adds reflection after evaluations)")
-    choice = input("Enter choice (1 or 2, default 1): ").strip() or "1"
+    objective = input("Analysis objective (e.g., 'Survival analysis', 'Classification'): ").strip()
+    if not objective:
+        objective = "Machine learning analysis"
     
-    if choice == "2":
-        print("\nUsing ReAct Agent with Reflection")
-        agent = ReActAgentWithReflection(config)
-    else:
-        print("\nUsing Standard ReAct Agent")
-        agent = ReActMLAgent(config)
+    agent.set_dataset(dataset_path, testset_path, objective)
     
-    print(f"\nDataset: {dataset_path}")
-    print(f"Objective: {objective}")
+    print("\n" + "=" * 70)
+    print("Interactive Session Started")
+    print("=" * 70)
+    print("\nAvailable commands:")
+    print("  - Natural language requests (e.g., 'analyze the data', 'train models')")
+    print("  - 'summary' - View current progress")
+    print("  - 'save' - Save session")
+    print("  - 'exit' - End session")
+    print("=" * 70)
     
-    try:
-        # Run the agent
-        result = await agent.run(
-            dataset_path=dataset_path,
-            testset_path=testset_path,
-            objective=objective,
-            max_iterations=20
-        )
+    # Main interaction loop
+    while True:
+        print()
+        user_input = input("You: ").strip()
         
-        if result["success"]:
-            print("\n" + "=" * 70)
-            print("AGENT COMPLETED SUCCESSFULLY!")
-            print("=" * 70)
-            
-            print(f"\nFINAL RESULTS:")
-            print(f"   Iterations used: {result['iterations']}/{agent.max_iterations}")
-            print(f"   Best model: {result['best_model']}")
-            print(f"   Best score: {result['best_score']:.3f}")
-            print(f"   Models trained: {', '.join(result['trained_models'])}")
-            
-            # Save results
-            output_dir = Path("outputs/react_conversations")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            conversation_file = output_dir / f"react_conversation_{timestamp}.json"
-            
-            agent.save_conversation(str(conversation_file))
-            
-            print(f"\nFull conversation saved to: {conversation_file}")
-            
-            # Save evaluation metrics
-            eval_dir = Path("outputs/evaluations")
-            eval_dir.mkdir(parents=True, exist_ok=True)
-            
-            eval_file = eval_dir / f"evaluation_metrics_{timestamp}.json"
-            
-            final_state = result["final_state"]
-            
-            evaluation_data = {
-                "timestamp": timestamp,
-                "dataset": dataset_path,
-                "objective": objective,
-                "task_type": final_state.get("feature_result", {}).get("task_type", "unknown"),
-                "best_model": result["best_model"],
-                "best_score": result["best_score"],
-                "iterations": result["iterations"],
-                "all_models": {}
-            }
-            
-            # Add detailed metrics for each model
-            if final_state.get("evaluation_results"):
-                for model_name, eval_result in final_state["evaluation_results"].items():
-                    metrics = eval_result.get("metrics", {})
-                    model_info = final_state.get("trained_models", {}).get(model_name, {})
-                    evaluation_data["all_models"][model_name] = {
-                        "test_metrics": metrics,
-                        "cv_metrics": model_info.get("cv_metrics", {}),
-                        "training_time": model_info.get("training_time", 0),
-                        "cv_score": model_info.get("cv_score", 0)
-                    }
-            
-            with open(eval_file, 'w') as f:
-                json.dump(evaluation_data, f, indent=2)
-            
-            print(f"Evaluation metrics saved to: {eval_file}")
-            print("\n" + "=" * 70)
-            print("Execution completed successfully!")
-            print("=" * 70)
-            
-        else:
-            print(f"\nAgent failed: {result.get('error')}")
-            print(f"   Completed {result['iterations']} iterations before failure")
+        if not user_input:
+            continue
         
-    except Exception as e:
-        print(f"Execution failed: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        # Handle commands
+        if user_input.lower() in ['exit', 'quit', 'bye']:
+            print("\nSaving session...")
+            agent.save_session()
+            print("Session ended.")
+            break
+        
+        if user_input.lower() == 'summary':
+            agent.print_summary()
+            continue
+        
+        if user_input.lower() == 'save':
+            agent.save_session()
+            continue
+        
+        if user_input.lower() == 'reset':
+            confirm = input("Reset session? This will clear all progress (y/n): ").strip().lower()
+            if confirm == 'y':
+                agent.reset_session()
+                print("Session reset")
+            continue
+        
+        # Process user request
+        try:
+            print("\nAgent: ", end="", flush=True)
+            response = await agent.chat(user_input)
+            print(response)
+        except KeyboardInterrupt:
+            print("\n\nInterrupted. Type 'exit' to end session.")
+        except Exception as e:
+            print(f"\nError: {str(e)}")
+            print("Please try again or type 'exit' to end session.")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\nSession terminated by user.")
+    except Exception as e:
+        print(f"\nFatal error: {str(e)}")
+        sys.exit(1)

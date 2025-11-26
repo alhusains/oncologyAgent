@@ -59,10 +59,11 @@ catboost_info/
 AutogluonModels/
 models/
 checkpoints/
+oncology/
 
-# Internal test scripts (main.py is the public entry point)
+# Development test scripts
 test_langchain_agent.py
-test_react_agent.py
+test_chat_agent.py
 
 # Temporary files
 *.log
