@@ -64,16 +64,55 @@ class MLConfig(BaseModel):
     )
 
 
+class ACEConfig(BaseModel):
+    """Configuration for ACE (Agentic Context Engineering) framework"""
+    enabled: bool = Field(default=True, description="Enable ACE framework")
+    playbook_path: str = Field(default="knowledge/playbook.json", description="Path to playbook file")
+    
+    # Self-improvement settings
+    max_improvement_iterations: int = Field(
+        default=3, description="Maximum iterations for self-improvement loop"
+    )
+    min_improvement_threshold: float = Field(
+        default=0.005, description="Minimum improvement to consider a change beneficial"
+    )
+    max_changes_per_iteration: int = Field(
+        default=3, description="Maximum changes to test per iteration"
+    )
+    
+    # Reflection settings
+    auto_reflect: bool = Field(
+        default=True, description="Automatically trigger reflection after experiments"
+    )
+    reflection_threshold: int = Field(
+        default=5, description="Number of actions before triggering reflection"
+    )
+    
+    # Playbook settings
+    auto_save_playbook: bool = Field(default=True, description="Auto-save playbook after updates")
+    merge_threshold: float = Field(
+        default=0.75, description="Similarity threshold for merging playbook items (0-1)"
+    )
+    min_confidence_for_suggestions: float = Field(
+        default=0.4, description="Minimum confidence for playbook suggestions"
+    )
+    max_playbook_items_in_prompt: int = Field(
+        default=10, description="Maximum playbook items to include in LLM prompts"
+    )
+
+
 class Config(BaseModel):
     """Main configuration class"""
     llm: LLMConfig = Field(default_factory=LLMConfig)
     data: DataConfig = Field(default_factory=DataConfig)
     ml: MLConfig = Field(default_factory=MLConfig)
+    ace: ACEConfig = Field(default_factory=ACEConfig)
     
     # Paths
     data_dir: Path = Field(default=Path("data"), description="Data directory")
     output_dir: Path = Field(default=Path("outputs"), description="Output directory")
     config_dir: Path = Field(default=Path("configs"), description="Config directory")
+    knowledge_dir: Path = Field(default=Path("knowledge"), description="Knowledge/playbook directory")
     
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
@@ -117,3 +156,4 @@ class Config(BaseModel):
         self.data_dir.mkdir(exist_ok=True, parents=True)
         self.output_dir.mkdir(exist_ok=True, parents=True)
         self.config_dir.mkdir(exist_ok=True, parents=True)
+        self.knowledge_dir.mkdir(exist_ok=True, parents=True)

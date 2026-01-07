@@ -29,6 +29,9 @@ class MLToolkit:
         self.model_trainer = ModelTrainer(config)
         self.error_analyzer = ErrorAnalyzer(config)
         
+        # ACE trajectory generator (set by ACE agent if enabled)
+        self.trajectory_generator = None
+        
         # State storage
         self.state = {
             "dataset_path": None,
@@ -955,6 +958,37 @@ Be specific about which features to interact, transform, or select.
             
             if X_train is None:
                 return {"error": "No training data available in state"}
+            
+            # Get feature names for DataFrame conversion
+            feature_names = feature_result.get("feature_names", None)
+            
+            # Convert numpy arrays to DataFrames if needed
+            if not isinstance(X_train, pd.DataFrame):
+                if feature_names is not None:
+                    X_train = pd.DataFrame(X_train, columns=feature_names)
+                else:
+                    X_train = pd.DataFrame(X_train)
+            
+            if X_test is not None and not isinstance(X_test, pd.DataFrame):
+                if feature_names is not None:
+                    X_test = pd.DataFrame(X_test, columns=feature_names)
+                else:
+                    X_test = pd.DataFrame(X_test)
+            
+            # Handle y_train and y_test conversion
+            if not isinstance(y_train, (pd.Series, pd.DataFrame)):
+                # Check if this is survival data (structured array)
+                if hasattr(y_train, 'dtype') and y_train.dtype.names is not None:
+                    # For survival data, keep as structured array or convert carefully
+                    y_train = pd.DataFrame(y_train)
+                else:
+                    y_train = pd.Series(y_train) if y_train.ndim == 1 else pd.DataFrame(y_train)
+            
+            if y_test is not None and not isinstance(y_test, (pd.Series, pd.DataFrame)):
+                if hasattr(y_test, 'dtype') and y_test.dtype.names is not None:
+                    y_test = pd.DataFrame(y_test)
+                else:
+                    y_test = pd.Series(y_test) if y_test.ndim == 1 else pd.DataFrame(y_test)
             
             # Combine train and test for comprehensive analysis
             if X_test is not None:

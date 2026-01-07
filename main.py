@@ -4,6 +4,8 @@ Oncology ML Agent - Interactive Machine Learning Pipeline
 An AI-powered conversational agent for automated machine learning analysis
 of oncology datasets. Supports classification, regression, and survival analysis
 with comprehensive interpretability reporting.
+
+Includes ACE (Agentic Context Engineering) framework for self-improvement.
 """
 
 import asyncio
@@ -18,6 +20,14 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from src.core.config import Config
 from src.agents import ConversationalMLAgent
+
+# Try to import ACE agent
+try:
+    from src.agents.ace_agent import ACEMLAgent
+    ACE_AVAILABLE = True
+except ImportError:
+    ACE_AVAILABLE = False
+    ACEMLAgent = None
 
 
 async def main():
@@ -45,8 +55,22 @@ async def main():
     print(f"  LLM Model: {config.llm.model}")
     print(f"  Output Directory: {config.output_dir}")
     
-    # Initialize conversational agent
-    agent = ConversationalMLAgent(config)
+    # Choose agent type
+    use_ace = config.ace.enabled and ACE_AVAILABLE
+    if ACE_AVAILABLE:
+        ace_choice = input(f"\nUse ACE framework for self-improvement? (Y/n, default: {'Y' if use_ace else 'n'}): ").strip().lower()
+        if ace_choice in ['n', 'no']:
+            use_ace = False
+        elif ace_choice in ['', 'y', 'yes']:
+            use_ace = True
+    
+    # Initialize agent
+    if use_ace:
+        print("\nInitializing ACE-enhanced agent (with self-improvement)...")
+        agent = ACEMLAgent(config)
+    else:
+        print("\nInitializing conversational agent (standard mode)...")
+        agent = ConversationalMLAgent(config)
     
     # Configure dataset
     print("\n" + "=" * 70)
@@ -83,6 +107,9 @@ async def main():
     print("  - Natural language requests (e.g., 'analyze the data', 'train models')")
     print("  - 'summary' - View current progress")
     print("  - 'save' - Save session")
+    if use_ace:
+        print("  - 'improve' - Run self-improvement loop (ACE)")
+        print("  - 'playbook' - View learned knowledge (ACE)")
     print("  - 'exit' - End session")
     print("=" * 70)
     

@@ -1,28 +1,28 @@
 # Oncology ML Agent
 
-An AI-powered conversational agent for automated machine learning analysis of oncology datasets. Built on LangChain and GPT-4, this system provides interactive, step-by-step ML pipeline execution with comprehensive interpretability reporting.
+An AI-powered conversational agent for automated machine learning analysis of oncology datasets. The agent provides interactive, step-by-step ML pipeline execution with self-improvement capabilities through the ACE (Agentic Context Engineering) framework.
 
-## Overview
+## Features
 
-The Oncology ML Agent is a conversational AI assistant that guides users through machine learning workflows for clinical data analysis. It supports classification, regression, and survival analysis tasks with full interpretability and clinical decision support.
+### Core Capabilities
+- **Interactive ML Pipeline**: Conversational interface for data analysis, feature engineering, model training, and evaluation
+- **Multiple Task Types**: Supports classification, regression, and survival analysis
+- **Automated Model Selection**: Trains and compares multiple models (XGBoost, Random Forest, LightGBM, CatBoost, AutoGluon)
+- **Comprehensive Analysis**: Includes data insights, feature importance, SHAP interpretability, and error analysis
+- **Persistent State**: Maintains context and progress across conversation turns
 
-### Key Features
+### ACE Framework (Self-Improvement)
+The ACE framework enables the agent to learn from experience and continuously improve:
 
-- **Interactive Conversation**: Multi-turn dialogue allowing precise control over each analysis step
-- **Comprehensive Data Analysis**: Automated dataset profiling with quality assessment and clinical insights
-- **Automated ML Pipeline**: Feature engineering, model selection, training, and evaluation
-- **Interpretability Reports**: PDF reports with SHAP analysis, feature importance, and clinical guidance
-- **Multiple Task Types**: Classification, regression, and survival analysis support
-- **Session Management**: Save and resume analysis sessions
+- **Trajectory Tracking**: Records all actions, decisions, and outcomes from experiments
+- **Playbook Learning**: Builds a knowledge base of strategies that worked (or didn't work) for specific contexts
+- **Self-Improvement Loop**: Can automatically iterate to find better model configurations
+- **Context-Aware Decisions**: Uses learned knowledge to inform future recommendations
+- **Ablation Testing**: Validates improvements through rigorous A/B testing
+
+The ACE framework makes the agent truly agentic - it progressively learns what works for different cancer types, dataset sizes, and task types, rather than relying on hardcoded heuristics.
 
 ## Installation
-
-### Requirements
-
-- Python >= 3.10
-- OpenAI API key
-
-### Setup
 
 ```bash
 # Clone the repository
@@ -30,404 +30,132 @@ git clone <repository-url>
 cd oncologyAgent
 
 # Install dependencies
-pip install -e .
+pip install -r requirements.txt  # or use pyproject.toml
 ```
-
-### Dependencies
-
-The system requires:
-- **LangChain**: Agent framework and tool orchestration
-- **OpenAI GPT-4**: Language model for reasoning and decision-making
-- **Scikit-learn**: Machine learning algorithms
-- **Scikit-survival**: Survival analysis models
-- **AutoGluon**: AutoML ensemble models
-- **SHAP**: Model interpretability
-- **Matplotlib/Seaborn**: Visualization and reporting
-
-Full dependency list available in `pyproject.toml`.
 
 ## Quick Start
 
-### Running the Agent
+### Basic Usage (Conversational Agent)
 
 ```bash
 python main.py
 ```
 
-You will be prompted for:
-1. OpenAI API key
-2. Training dataset path
-3. Test dataset path (optional)
-4. Analysis objective
+The agent will prompt you for:
+- OpenAI API key
+- Training dataset path
+- Optional test dataset path
+- Analysis objective
 
-### Example Session
-
+Then you can interact naturally:
 ```
-You: analyze the data
+You: Analyze the data and show me insights
+Agent: [Performs data analysis and presents findings]
 
-Agent: [Provides comprehensive dataset analysis]
+You: Create some relevant features
+Agent: [Engineers features based on data characteristics]
 
-You: implement feature engineering
-
-Agent: [Engineers features and reports results]
-
-You: train classification models
-
-Agent: [Trains multiple models and shows performance]
-
-You: generate interpretability report
-
-Agent: [Creates PDF report with SHAP analysis]
+You: Train and evaluate models
+Agent: [Trains multiple models, compares performance]
 ```
 
-## Usage
+### With ACE Framework (Self-Improvement)
 
-### Basic Workflow
-
-1. **Start Interactive Session**
-   ```bash
-   python main.py
-   ```
-
-2. **Configure Dataset**
-   - Provide training data path
-   - Optionally provide separate test set
-   - Specify analysis objective
-
-3. **Interact with Agent**
-   - Request specific analysis steps
-   - Execute full pipeline
-   - Generate reports
-
-4. **Save Results**
-   - Type `save` to save session
-   - Type `summary` to view progress
-   - Type `exit` to end session
-
-### Programmatic Usage
-
-```python
-from src.agents import ConversationalMLAgent
-from src.core.config import Config
-import os
-
-# Configure
-os.environ["OPENAI_API_KEY"] = "your-key"
-config = Config.from_env()
-
-# Initialize agent
-agent = ConversationalMLAgent(config)
-agent.set_dataset("data/train.csv", "data/test.csv", "Classification analysis")
-
-# Interact
-response = await agent.chat("Give me data insights")
-response = await agent.chat("Train classification models")
-response = await agent.chat("Generate interpretability report")
-
-# Save session
-agent.save_session()
-```
-
-## Features
-
-### Data Analysis
-
-The agent provides comprehensive dataset analysis including:
-- Dataset overview and statistics
-- Missing data patterns and quality assessment
-- Target variable distribution and balance
-- Feature correlations and relationships
-- Outlier detection
-- Clinical data insights
-
-Request with: `"analyze the data"` or `"give me data insights"`
-
-### Feature Engineering
-
-Automated feature engineering with:
-- Missing value imputation
-- Categorical encoding (one-hot, label)
-- Numerical scaling (standard, min-max, robust)
-- Feature selection
-- Class balancing (for classification)
-- Risk-stratified splitting (for survival)
-
-Request with: `"implement feature engineering"`
-
-### Model Training
-
-Supports multiple model types:
-
-**Classification:**
-- AutoGluon (AutoML ensemble)
-- XGBoost, CatBoost, LightGBM
-- Random Forest
-- Logistic Regression
-
-**Regression:**
-- Linear Regression, Ridge
-- XGBoost, LightGBM
-- Random Forest
-
-**Survival Analysis:**
-- Cox Proportional Hazards
-- Random Survival Forest
-- Gradient Boosting Survival Analysis
-
-Request with: `"train a random forest model"` or `"train all classification models"`
-
-### Model Evaluation
-
-Task-specific evaluation metrics:
-- **Classification**: Accuracy, Precision, Recall, F1-Score, ROC-AUC
-- **Regression**: R², MAE, RMSE, MAPE
-- **Survival**: C-Index, Integrated Brier Score, Time-Dependent AUC
-
-Request with: `"evaluate the model"`
-
-### Interpretability Reports
-
-Comprehensive PDF reports including:
-- Model performance metrics and visualizations
-- Feature importance rankings
-- SHAP analysis (summary plots, feature contributions)
-- Prediction distributions
-- ROC curves (classification)
-- Time-dependent AUC (survival)
-- Clinical decision support guidance
-
-Request with: `"generate interpretability report"`
-
-Reports are saved to `outputs/interpretability_reports/`
-
-## Architecture
-
-### System Components
+When ACE is enabled (default), the agent can improve itself:
 
 ```
-oncologyAgent/
-├── src/
-│   ├── agents/
-│   │   ├── conversational_agent.py  # Multi-turn chat agent
-│   │   ├── tools.py                 # ML pipeline tools
-│   │   ├── data_insights.py         # Data analysis
-│   │   └── interpretability.py      # Report generation
-│   ├── core/
-│   │   ├── config.py                # Configuration management
-│   │   └── state.py                 # State tracking
-│   ├── llm/
-│   │   └── client.py                # LLM interface
-│   ├── data/
-│   │   └── analyzer.py              # Dataset analysis
-│   └── ml/
-│       ├── feature_engineer.py      # Feature engineering
-│       ├── model_selector.py        # Model selection
-│       └── trainer.py               # Model training
-├── main.py                          # Entry point
-└── outputs/
-    ├── interpretability_reports/    # PDF reports
-    └── chat_sessions/               # Saved sessions
+You: Try to improve the model performance
+Agent: [Runs improvement loop, tests changes, learns from results]
 ```
 
-### Agent Tools
+The agent will:
+1. Analyze the current baseline model
+2. Generate improvement hypotheses based on learned knowledge
+3. Test changes through ablation experiments
+4. Update its playbook with successful strategies
 
-The agent has access to 10 specialized tools:
+### Configuration
 
-1. **analyze_data**: Dataset structure and target identification
-2. **engineer_features**: Preprocessing and feature transformation
-3. **select_models**: Model recommendations
-4. **train_model**: Model training with hyperparameter optimization
-5. **evaluate_model**: Test set evaluation
-6. **analyze_errors**: Error pattern analysis
-7. **get_feature_importance**: Feature importance rankings
-8. **get_current_state**: Progress tracking
-9. **get_data_insights**: Comprehensive data analysis
-10. **generate_interpretability_report**: PDF report generation
-
-## Configuration
-
-### Environment Variables
-
-```bash
-export OPENAI_API_KEY="your-key-here"
-export LLM_MODEL="gpt-4o-mini"
-```
-
-### Configuration File
-
-Edit `configs/default.yaml`:
+Edit `configs/default.yaml` to customize:
 
 ```yaml
 llm:
-  model: "gpt-4o-mini"
+  model: "gpt-4o-mini"  # or gpt-4, gpt-4-turbo, etc.
   temperature: 0.1
 
 ml:
   cv_folds: 5
   optuna_trials: 100
+  models_to_try: ["xgboost", "random_forest", "lightgbm", "catboost", "autogluon"]
 
-data:
-  test_size: 0.2
-  val_size: 0.2
-  random_state: 42
+ace:
+  enabled: true
+  max_improvement_iterations: 3
+  auto_reflect: true
 ```
 
-## Advanced Features
-
-### Session Management
-
-Sessions can be saved and include:
-- Full conversation history
-- ML pipeline state
-- Trained models and results
-- Analysis metadata
-
-Sessions are saved to `outputs/chat_sessions/`
-
-### Pre-split Test Sets
-
-```python
-agent.set_dataset(
-    dataset_path="train.csv",
-    testset_path="test.csv",  # Optional separate test set
-    objective="Classification"
-)
+Or use environment variables:
+```bash
+export OPENAI_API_KEY="your-key"
+export LLM_MODEL="gpt-4o-mini"
+export ML_N_JOBS=4
 ```
 
-### Preset Cross-Validation
+## Project Structure
 
-Use preset CV folds from dataset:
-
-```python
-# Dataset must have 'CV' column with fold numbers
-agent.set_dataset(
-    dataset_path="data_with_cv.csv",
-    objective="Classification",
-    use_preset_CV=True
-)
+```
+oncologyAgent/
+├── src/
+│   ├── agents/          # Agent implementations
+│   │   ├── conversational_agent.py
+│   │   ├── ace_agent.py
+│   │   └── tools.py
+│   ├── ace/             # ACE framework components
+│   │   ├── controller.py
+│   │   ├── generator.py
+│   │   ├── reflector.py
+│   │   ├── curator.py
+│   │   └── schemas.py
+│   ├── core/            # Base classes and configuration
+│   ├── llm/             # LLM client and prompts
+│   └── ml/              # ML pipeline components
+├── configs/             # Configuration files
+├── knowledge/           # Playbook storage (auto-generated)
+├── main.py              # Entry point
+└── README.md
 ```
 
-## Output Files
+## How ACE Works
 
-### Interpretability Reports
+The ACE framework consists of four components:
 
-Location: `outputs/interpretability_reports/`
+1. **Generator**: Records trajectories of all agent actions and experiments
+2. **Reflector**: Analyzes trajectories to extract lessons about what worked
+3. **Curator**: Maintains a playbook of learned strategies with confidence scores
+4. **Controller**: Orchestrates improvement loops using playbook knowledge
 
-Format: `{model_name}_{task_type}_{timestamp}.pdf`
+The agent starts with minimal seed knowledge and progressively builds expertise through experimentation. For example:
+- Initially: 6 general bootstrap strategies
+- After 5 breast cancer experiments: 15+ cancer-specific strategies learned
+- Knowledge includes: successful feature interactions, model configurations, common pitfalls
 
-Content:
-- Title page with model overview
-- Performance metrics dashboard
-- Feature importance plots
-- SHAP analysis visualizations
-- Prediction distributions
-- Clinical decision guidance
+## API Key
 
-### Session Files
+You'll need an OpenAI API key. Set it via:
+- Interactive prompt (entered during execution)
+- Environment variable: `export OPENAI_API_KEY="your-key"`
+- Config file: Add to `configs/default.yaml`
 
-Location: `outputs/chat_sessions/`
+## Requirements
 
-Format: `session_{id}_{timestamp}.json`
+- Python 3.8+
+- OpenAI API access
+- Key packages: langchain, langgraph, pandas, scikit-learn, xgboost, lightgbm, catboost, autogluon, shap, optuna
 
-Content:
-- Conversation history
-- ML pipeline state
-- Model results
-- Session metadata
+## Use Cases
 
-## Model Support
-
-### Task Types
-
-**Classification**: Binary and multi-class classification with:
-- Confusion matrices
-- ROC curves and AUC
-- Precision, recall, F1-score
-
-**Regression**: Continuous value prediction with:
-- R² and error metrics
-- Residual analysis
-- Prediction vs actual plots
-
-**Survival Analysis**: Time-to-event analysis with:
-- C-index and concordance
-- Integrated Brier Score
-- Time-dependent AUC
-
-### AutoGluon Integration
-
-For classification tasks, AutoGluon provides:
-- Automatic ensemble model creation
-- Multiple model types trained in parallel
-- Hyperparameter optimization
-- Weighted ensemble predictions
-- GPU acceleration support
-
-## Clinical Decision Support
-
-The interpretability reports include clinical guidance:
-- Model reliability assessment
-- Feature importance interpretation
-- Prediction confidence analysis
-- Usage recommendations
-- Limitations and caveats
-
-Reports are designed for clinical audiences with clear visualizations and actionable insights.
-
-## Troubleshooting
-
-### Common Issues
-
-**Agent doesn't execute tools**
-- Ensure dataset paths are correct
-- Check that objective is clearly stated
-- Verify OpenAI API key is valid
-
-**SHAP analysis slow**
-- Normal for AutoGluon models (30-60 seconds)
-- Can disable with interpretability report options
-- Faster for tree-based models (XGBoost, CatBoost)
-
-**Missing dependencies**
-- Run `pip install -e .` to install all requirements
-- Check Python version >= 3.10
-
-## Contributing
-
-The agent framework is designed to be extensible:
-- Add new tools in `src/agents/tools.py`
-- Extend model support in `src/ml/trainer.py`
-- Customize prompts in `src/agents/conversational_agent.py`
-- Add new report sections in `src/agents/interpretability.py`
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Citation
-
-If you use this work in your research, please cite:
-
-```bibtex
-@software{oncology_ml_agent,
-  title={Oncology ML Agent: Interactive ML Pipeline for Clinical Data},
-  author={Your Name},
-  year={2025},
-  url={https://github.com/yourusername/oncologyAgent}
-}
-```
-
-## Support
-
-For issues, questions, or contributions:
-- Open an issue on GitHub
-- Contact: your.email@example.com
-
-## Acknowledgments
-
-Built with:
-- LangChain for agent framework
-- OpenAI GPT-4 for reasoning
-- scikit-learn and scikit-survival for ML
-- SHAP for interpretability
-- AutoGluon for AutoML
+- Exploratory analysis of oncology clinical trial data
+- Automated model development for cancer biomarker prediction
+- Survival analysis for treatment outcome studies
+- Rapid prototyping of ML pipelines for medical research
+- Learning optimal strategies for specific cancer types

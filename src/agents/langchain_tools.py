@@ -117,6 +117,17 @@ class GenerateInterpretabilityReportInput(BaseModel):
     )
 
 
+class RefineFeaturesInput(BaseModel):
+    """Input schema for refine_features tool"""
+    performance_feedback: str = Field(
+        description="Description of current performance issues or goals for improvement"
+    )
+    focus_areas: Optional[list] = Field(
+        default=None,
+        description="Optional list of areas to focus on: 'feature_interactions', 'transformations', 'feature_selection'"
+    )
+
+
 # ============================================================================
 # Tool Creation Function
 # ============================================================================
@@ -498,6 +509,44 @@ def create_langchain_tools(toolkit: MLToolkit) -> list:
         func=generate_interpretability_report_sync,
         coroutine=generate_interpretability_report_async,
         args_schema=GenerateInterpretabilityReportInput
+    ))
+    
+    # ========================================================================
+    # Tool 11: Refine Features
+    # ========================================================================
+    
+    async def refine_features_async(
+        performance_feedback: str,
+        focus_areas: Optional[list] = None
+    ) -> Dict[str, Any]:
+        """
+        Refine feature engineering based on performance feedback.
+        
+        Uses LLM analysis to suggest and apply improved feature engineering,
+        then requires retraining models with the new features.
+        """
+        return await toolkit._refine_features(performance_feedback, focus_areas)
+    
+    def refine_features_sync(
+        performance_feedback: str,
+        focus_areas: Optional[list] = None
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for refine_features"""
+        return asyncio.run(refine_features_async(performance_feedback, focus_areas))
+    
+    tools.append(StructuredTool(
+        name="refine_features",
+        description=(
+            "Refine feature engineering based on model performance feedback. "
+            "Use this when you want to improve features after seeing initial model results. "
+            "Provide feedback like 'Low accuracy on test set' or 'Need better feature interactions'. "
+            "Focus areas can include: 'feature_interactions', 'transformations', 'feature_selection'. "
+            "After refining, you MUST retrain the models with the new features. "
+            "Use when model performance needs improvement."
+        ),
+        func=refine_features_sync,
+        coroutine=refine_features_async,
+        args_schema=RefineFeaturesInput
     ))
     
     return tools

@@ -159,8 +159,8 @@ class DataInsightsAnalyzer:
                 for feat in missing_features
             },
             'rows_with_any_missing': int(df.isna().any(axis=1).sum()),
-            'percentage_rows_with_missing': float(
-                (df.isna().any(axis=1).sum() / len(df) * 100).round(2)
+            'percentage_rows_with_missing': round(
+                df.isna().any(axis=1).sum() / len(df) * 100, 2
             )
         }
     
@@ -174,7 +174,7 @@ class DataInsightsAnalyzer:
             'variable_name': target,
             'data_type': str(target_series.dtype),
             'missing_count': int(target_series.isna().sum()),
-            'missing_percentage': float((target_series.isna().sum() / len(df) * 100).round(2))
+            'missing_percentage': round(target_series.isna().sum() / len(df) * 100, 2)
         }
         
         # Task-specific analysis
@@ -324,7 +324,7 @@ class DataInsightsAnalyzer:
         
         return {
             'quality_score': max(0, quality_score),
-            'completeness_percentage': float(((total_cells - missing_cells) / total_cells * 100).round(2)),
+            'completeness_percentage': round((total_cells - missing_cells) / total_cells * 100, 2),
             'n_duplicate_rows': int(n_duplicates),
             'constant_features': constant_features,
             'high_cardinality_features': high_cardinality,
@@ -350,7 +350,7 @@ class DataInsightsAnalyzer:
             if len(outliers) > 0:
                 outlier_summary[col] = {
                     'n_outliers': int(len(outliers)),
-                    'percentage': float((len(outliers) / len(df) * 100).round(2)),
+                    'percentage': round(len(outliers) / len(df) * 100, 2),
                     'bounds': {
                         'lower': float(lower_bound),
                         'upper': float(upper_bound)
