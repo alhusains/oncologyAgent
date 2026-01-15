@@ -138,8 +138,21 @@ class FeatureCreator:
                 else:
                     warnings.warn(f"Unknown numerical operation: {operation}")
                     return df
+            elif "categorical" in feature_types and "numerical" in feature_types:
+                # Smart categorical-numerical interaction
+                # Use group-based encoding instead of concatenation to avoid high cardinality
+                cat_feature = features[feature_types.index("categorical")]
+                num_feature = features[feature_types.index("numerical")]
+                
+                # Create group-based statistics (mean encoding)
+                # This preserves the interaction signal while keeping cardinality low
+                group_means = df.groupby(cat_feature)[num_feature].transform('mean')
+                df[name] = group_means
+                
+                warnings.warn(f"Created categorical-numerical interaction '{name}' using group mean encoding to avoid high cardinality")
             else:
-                # Categorical interaction (concatenation)
+                # Pure categorical interaction (concatenation)
+                # Only use this for categorical-categorical interactions
                 df[name] = df[features[0]].astype(str)
                 for feat in features[1:]:
                     df[name] = df[name] + "_" + df[feat].astype(str)
@@ -439,22 +452,15 @@ def get_default_oncology_operations() -> Dict[str, Any]:
     """
     Get default feature engineering operations for oncology datasets.
     
+    MODIFIED FOR ACE EXPERIMENTS:
+    Returns minimal/empty operations - agent should learn feature engineering
+    strategies from experience rather than using hardcoded rules.
+    
     Returns:
-        Dictionary of recommended operations for oncology data
+        Dictionary of recommended operations (empty for learning from scratch)
     """
     return {
-        "oncology_features": {
-            "calculate_bmi": True,
-            "age_stage_risk": True,
-            "smoking_sex_interaction": True,
-            "log_biomarkers": ["psa_level", "cea_level", "ca125", "afp", "tumor_size", "tumor_volume"]
-        },
-        "transformations": [
-            {
-                "features": ["tumor_size", "tumor_volume"],
-                "transform_type": "log1p",
-                "prefix": "log"
-            }
-        ]
+        "oncology_features": {},  # Empty - let agent learn
+        "transformations": []  # Empty - let agent learn
     }
 

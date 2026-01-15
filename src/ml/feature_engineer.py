@@ -45,6 +45,7 @@ class FeatureEngineer(LLMAgent):
         time_variable = inputs.get("time_variable", None)
         testset_path = inputs.get("testset_path", None)
         feature_engineering_config = inputs.get("feature_engineering_config", None)  # For refinement
+        basic_only = inputs.get("basic_only", False)  # NEW: Skip advanced feature creation
         
         # Load the data
         df = await self._load_data(dataset_path)
@@ -57,7 +58,10 @@ class FeatureEngineer(LLMAgent):
         
         # Get LLM recommendations for feature engineering
         # Use provided config if available (for refinement), otherwise get new recommendations
-        if feature_engineering_config:
+        if basic_only:
+            self.log("Basic preprocessing only - skipping advanced feature creation")
+            llm_recommendations = self._get_basic_preprocessing_config(data_analysis)
+        elif feature_engineering_config:
             self.log("Using provided feature engineering configuration (refinement mode)")
             llm_recommendations = feature_engineering_config
         else:
@@ -88,7 +92,8 @@ class FeatureEngineer(LLMAgent):
         target_variable: str,
         time_variable: Optional[str] = None,
         testset_path: Optional[str] = None,
-        feature_engineering_config: Optional[Dict[str, Any]] = None
+        feature_engineering_config: Optional[Dict[str, Any]] = None,
+        basic_only: bool = False
     ) -> Dict[str, Any]:
         """Main entry point for feature engineering"""
         result = await self.execute({
@@ -97,7 +102,8 @@ class FeatureEngineer(LLMAgent):
             "target_variable": target_variable,
             "time_variable": time_variable,
             "testset_path": testset_path,
-            "feature_engineering_config": feature_engineering_config
+            "feature_engineering_config": feature_engineering_config,
+            "basic_only": basic_only
         })
         
         if result.status.value == "completed":
@@ -148,7 +154,30 @@ class FeatureEngineer(LLMAgent):
             feature_names = data_analysis.get("suggested_features", [])
             quality_report = analyze_feature_quality(df, feature_names[:20])  # Sample for efficiency
             
-            # Prepare data for LLM with ACTUAL feature names
+            # Extract EDA insights if available
+            enhanced_eda = data_analysis.get("enhanced_eda", {})
+            
+            # Log EDA insights for transparency
+            if enhanced_eda:
+                dist_insights = enhanced_eda.get("distribution_insights", {})
+                feature_hints = enhanced_eda.get("feature_importance_hints", {})
+                interactions = enhanced_eda.get("interaction_opportunities", {})
+                
+                self.log("="*80)
+                self.log("EDA INSIGHTS AVAILABLE:")
+                self.log(f"  - Skewed features: {len(dist_insights.get('skewed_features', []))}")
+                if dist_insights.get('skewed_features'):
+                    self.log(f"    Examples: {[f['feature'] for f in dist_insights.get('skewed_features', [])[:3]]}")
+                
+                self.log(f"  - High-impact features: {len(feature_hints.get('high_impact_features', []))}")
+                if feature_hints.get('high_impact_features'):
+                    self.log(f"    Examples: {[f['feature'] for f in feature_hints.get('high_impact_features', [])[:3]]}")
+                
+                self.log(f"  - Numerical interactions: {len(interactions.get('numerical_pairs', []))}")
+                self.log(f"  - Cat-num interactions: {len(interactions.get('categorical_numerical_pairs', []))}")
+                self.log("="*80)
+            
+            # Prepare data for LLM with ACTUAL feature names AND EDA INSIGHTS
             data_schema = {
                 "shape": f"{data_analysis.get('n_rows', 0)} rows × {data_analysis.get('n_cols', 0)} columns",
                 "target_variable": data_analysis.get("suggested_target"),
@@ -158,7 +187,14 @@ class FeatureEngineer(LLMAgent):
                 "data_quality_issues": data_analysis.get("data_quality", []),
                 "missing_values": data_analysis.get("missing_values", {}),
                 "feature_quality_sample": quality_report,
-                "note": "Above are the ACTUAL feature names in this dataset. Base your suggestions on these specific features."
+                # ADD EDA INSIGHTS
+                "eda_insights": {
+                    "skewed_features": enhanced_eda.get("distribution_insights", {}).get("skewed_features", []),
+                    "high_impact_features": enhanced_eda.get("feature_importance_hints", {}).get("high_impact_features", []),
+                    "interaction_opportunities": enhanced_eda.get("interaction_opportunities", {}),
+                    "preprocessing_recommendations": enhanced_eda.get("preprocessing_recommendations", {})
+                },
+                "note": "Above are the ACTUAL feature names in this dataset. Base your suggestions on these specific features and EDA insights."
             }
             
             target_info = {
@@ -220,8 +256,8 @@ class FeatureEngineer(LLMAgent):
                 recommendations["feature_selection"] = {
                     "enabled": True,
                     "missing_threshold": 0.3,      # More strict: remove if >30% missing
-                    "variance_threshold": 0.01,    # Keep default for now
-                    "correlation_threshold": 0.85,  # More aggressive: remove highly correlated (>0.85)
+                    "variance_threshold": 0.001,    # Keep default for now
+                    "correlation_threshold": 0.95,  # More aggressive: remove highly correlated (>0.85)
                     "max_features": None  # No limit by default
                 }
             
@@ -233,25 +269,95 @@ class FeatureEngineer(LLMAgent):
             return self._get_default_recommendations(data_analysis)
     
     def _get_default_recommendations(self, data_analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Default feature engineering recommendations if LLM fails"""
+        """
+        Minimal default recommendations - only essential preprocessing.
+        
+        MODIFIED FOR ACE EXPERIMENTS:
+        Agent should learn feature engineering strategies from experience.
+        Only basic preprocessing (scaling, encoding, imputation) is provided.
+        Feature selection and custom operations are minimal to allow learning.
+        
+        NOW WITH EDA-GUIDED DEFAULTS:
+        If EDA insights are available, use them to set sensible defaults.
+        """
+        
+        # Extract EDA insights if available
+        enhanced_eda = data_analysis.get("enhanced_eda", {})
+        preprocessing_recs = enhanced_eda.get("preprocessing_recommendations", {})
+        
+        # Use EDA-recommended scaling strategy, or default to standard
+        scaling_strategy = preprocessing_recs.get("scaling_strategy", "standard")
+        
+        # Use EDA-recommended encoding strategy, or default to onehot
+        encoding_strategy = preprocessing_recs.get("encoding_strategy", "onehot")
+        
+        # Log what we're using
+        if preprocessing_recs:
+            self.log(f"Using EDA-recommended scaling: {scaling_strategy} ({preprocessing_recs.get('rationale', 'no rationale')})")
+        else:
+            self.log(f"No EDA preprocessing recommendations, using defaults: scaling={scaling_strategy}")
+        
         return {
             "numerical_transformations": {
-                "scaling_strategy": "standard",
+                "scaling_strategy": scaling_strategy,
                 "imputation_strategy": "median"
             },
             "categorical_encoding": {
-                "low_cardinality": "onehot",
-                "high_cardinality": "drop",  # Changed from "label" to "drop"
+                "low_cardinality": encoding_strategy,
+                "high_cardinality": "drop",
                 "imputation_strategy": "most_frequent"
             },
             "feature_selection": {
                 "enabled": True,
-                "missing_threshold": 0.3,      # More strict
-                "variance_threshold": 0.01,
-                "correlation_threshold": 0.85,  # More aggressive
+                "missing_threshold": 0.5,
+                "variance_threshold": 0.0,
+                "correlation_threshold": 0.995,
                 "max_features": None
             },
-            "feature_creator_operations": get_default_oncology_operations()
+            "feature_creator_operations": {}  # Agent learns from scratch
+        }
+    
+    def _get_basic_preprocessing_config(self, data_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Basic preprocessing only - NO advanced feature creation.
+        
+        Use this for baseline phase in experiments where we want to establish
+        a fair starting point without feature engineering.
+        
+        Returns minimal config with:
+        - Scaling/encoding/imputation
+        - NO feature interactions
+        - NO transformations
+        - NO domain-specific features
+        """
+        self.log("Using basic preprocessing config (no advanced features)")
+        
+        # Extract EDA insights for intelligent preprocessing
+        enhanced_eda = data_analysis.get("enhanced_eda", {})
+        preprocessing_recs = enhanced_eda.get("preprocessing_recommendations", {})
+        
+        # Use EDA-recommended strategies if available
+        scaling_strategy = preprocessing_recs.get("scaling_strategy", "standard")
+        encoding_strategy = preprocessing_recs.get("encoding_strategy", "onehot")
+        
+        return {
+            "numerical_transformations": {
+                "scaling_strategy": scaling_strategy,
+                "imputation_strategy": "median"
+            },
+            "categorical_encoding": {
+                "low_cardinality": encoding_strategy,
+                "high_cardinality": "drop",
+                "imputation_strategy": "most_frequent"
+            },
+            "feature_selection": {
+                "enabled": True,
+                "missing_threshold": 0.5,     # Only remove if >50% missing
+                "variance_threshold": 0.0,     # Keep all non-zero variance features
+                "correlation_threshold": 0.995, # Only remove if nearly perfect correlation
+                "max_features": None
+            },
+            "feature_creator_operations": {}  # EMPTY - no feature creation for baseline
         }
     
     def _extract_structured_operations(
@@ -821,18 +927,31 @@ class FeatureEngineer(LLMAgent):
         
         # === NEW: Feature Selection Step ===
         # Apply feature selection to remove redundant/uninformative features
+        # Use config values as defaults, but allow LLM to override if it provides specific recommendations
         feature_selection_config = llm_recommendations.get("feature_selection", {})
-        if feature_selection_config.get("enabled", True):
+        
+        # Check if feature selection is enabled (config takes precedence, then LLM recommendations)
+        enabled = self.config.data.feature_selection_enabled
+        if "enabled" in feature_selection_config:
+            enabled = feature_selection_config.get("enabled")
+        
+        if enabled:
             self.log("Performing feature selection...")
             
             all_features = actual_categorical + actual_numerical
             
+            # Use config values as defaults, allow LLM to override
+            variance_thresh = feature_selection_config.get("variance_threshold", self.config.data.variance_threshold)
+            correlation_thresh = feature_selection_config.get("correlation_threshold", self.config.data.correlation_threshold)
+            max_feats = feature_selection_config.get("max_features", self.config.data.max_features)
+            missing_thresh = feature_selection_config.get("missing_threshold", self.config.data.missing_value_threshold)
+            
             # Initialize feature selector
             self.feature_selector = FeatureSelector(
-                missing_threshold=feature_selection_config.get("missing_threshold", 0.5),
-                variance_threshold=feature_selection_config.get("variance_threshold", 0.01),
-                correlation_threshold=feature_selection_config.get("correlation_threshold", 0.95),
-                max_features=feature_selection_config.get("max_features", None)
+                missing_threshold=missing_thresh,
+                variance_threshold=variance_thresh,
+                correlation_threshold=correlation_thresh,
+                max_features=max_feats
             )
             
             # Perform selection on training data (X includes features before split)

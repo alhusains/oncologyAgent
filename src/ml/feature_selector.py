@@ -169,11 +169,23 @@ class FeatureSelector:
                         ))
             
             # Remove one feature from each highly correlated pair
-            # Keep the first one, remove the second
+            # SMART REMOVAL: Prefer keeping transformed features over originals
             to_remove = set()
             for feat1, feat2, corr in high_corr_pairs:
-                if feat2 not in to_remove:
-                    to_remove.add(feat2)
+                # Check if one is a transformation of the other
+                transform_prefixes = ['log_', 'log1p_', 'sqrt_', 'square_', 'poly_', 'ratio_', 'binned_']
+                
+                feat1_is_transform = any(feat1.startswith(prefix) for prefix in transform_prefixes)
+                feat2_is_transform = any(feat2.startswith(prefix) for prefix in transform_prefixes)
+                
+                # If feat2 is a transform and feat1 is not, keep feat2 (remove feat1)
+                if feat2_is_transform and not feat1_is_transform:
+                    if feat1 not in to_remove:
+                        to_remove.add(feat1)
+                # Otherwise keep feat1 (remove feat2) - default behavior
+                else:
+                    if feat2 not in to_remove:
+                        to_remove.add(feat2)
             
             high_corr = list(to_remove)
             self.removed_features["high_correlation"] = high_corr

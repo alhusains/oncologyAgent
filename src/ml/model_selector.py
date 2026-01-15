@@ -224,7 +224,11 @@ class ModelSelector(LLMAgent):
         self.log("Getting LLM recommendations for model selection...")
         
         try:
-            # Prepare data characteristics
+            # Extract EDA insights
+            enhanced_eda = data_analysis.get("enhanced_eda", {})
+            model_hints = enhanced_eda.get("model_selection_hints", {})
+            
+            # Prepare data characteristics WITH EDA INSIGHTS
             data_characteristics = {
                 "task_type": data_analysis.get("task_type"),
                 "n_samples": feature_info.get("n_samples_train", 0),
@@ -233,7 +237,13 @@ class ModelSelector(LLMAgent):
                 "categorical_features": len(feature_info.get("categorical_features", [])),
                 "numerical_features": len(feature_info.get("numerical_features", [])),
                 "data_quality_issues": data_analysis.get("data_quality", []),
-                "domain": "clinical/medical"
+                "domain": "clinical/medical",
+                # ADD EDA-BASED MODEL HINTS
+                "eda_model_hints": {
+                    "recommended": model_hints.get("recommended_models", []),
+                    "avoid": model_hints.get("avoid_models", []),
+                    "reasoning": model_hints.get("reasoning", [])
+                }
             }
             
             # Use LLM for model suggestions
@@ -247,40 +257,85 @@ class ModelSelector(LLMAgent):
             
         except Exception as e:
             self.log(f"LLM model recommendations failed: {str(e)}", "ERROR")
-            return self._get_default_model_recommendations(data_analysis)
+            return self._get_default_model_recommendations(data_analysis, feature_info)
     
-    def _get_default_model_recommendations(self, data_analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Default model recommendations if LLM fails - uses smart heuristics based on data characteristics"""
+    def _get_default_model_recommendations(self, data_analysis: Dict[str, Any], feature_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Default model recommendations if LLM fails - uses smart heuristics based on data characteristics.
+        NOW WITH EDA-GUIDED SELECTION.
+        """
         task_type = data_analysis.get("task_type", "classification")
         
+        # Extract EDA insights
+        enhanced_eda = data_analysis.get("enhanced_eda", {})
+        model_hints = enhanced_eda.get("model_selection_hints", {})
+        eda_recommended = model_hints.get("recommended_models", [])
+        
+        # Log if we have EDA guidance
+        if eda_recommended:
+            self.log(f"Using EDA-guided model selection: {eda_recommended}")
+        
         if task_type == "classification":
+            base_models = [
+                {"name": "autogluon", "priority": 1, "reasoning": "AutoML ensemble that combines multiple models with automatic preprocessing and tuning"},
+                {"name": "catboost", "priority": 2, "reasoning": "Excellent for categorical features, often wins competitions"},
+                {"name": "xgboost", "priority": 3, "reasoning": "Strong performance on tabular data"},
+                {"name": "logistic_regression", "priority": 4, "reasoning": "Good baseline for binary classification"},
+                {"name": "random_forest", "priority": 5, "reasoning": "Robust and handles mixed data types"}
+            ]
+            
+            # Reorder based on EDA hints (boost priority of EDA-recommended models)
+            if eda_recommended:
+                for model in base_models:
+                    if any(rec in model["name"] for rec in eda_recommended):
+                        model["priority"] = max(1, model["priority"] - 1)
+                        model["reasoning"] += " [EDA-recommended]"
+                
+                # Sort by priority
+                base_models = sorted(base_models, key=lambda x: x["priority"])
+            
             return {
-                "recommended_models": [
-                    {"name": "autogluon", "priority": 1, "reasoning": "AutoML ensemble that combines multiple models with automatic preprocessing and tuning"},
-                    {"name": "catboost", "priority": 2, "reasoning": "Excellent for categorical features, often wins competitions"},
-                    {"name": "xgboost", "priority": 3, "reasoning": "Strong performance on tabular data"},
-                    {"name": "logistic_regression", "priority": 4, "reasoning": "Good baseline for binary classification"},
-                    {"name": "random_forest", "priority": 5, "reasoning": "Robust and handles mixed data types"}
-                ],
+                "recommended_models": base_models,
                 "evaluation_metrics": ["accuracy", "f1", "roc_auc", "precision", "recall"]
             }
         elif task_type == "regression":
+            base_models = [
+                {"name": "linear_regression", "priority": 1, "reasoning": "Good baseline"},
+                {"name": "random_forest", "priority": 2, "reasoning": "Handles non-linearity"},
+                {"name": "xgboost", "priority": 3, "reasoning": "Strong performance on tabular data"}
+            ]
+            
+            if eda_recommended:
+                for model in base_models:
+                    if any(rec in model["name"] for rec in eda_recommended):
+                        model["priority"] = max(1, model["priority"] - 1)
+                        model["reasoning"] += " [EDA-recommended]"
+                
+                base_models = sorted(base_models, key=lambda x: x["priority"])
+            
             return {
-                "recommended_models": [
-                    {"name": "linear_regression", "priority": 1, "reasoning": "Good baseline"},
-                    {"name": "random_forest", "priority": 2, "reasoning": "Handles non-linearity"},
-                    {"name": "xgboost", "priority": 3, "reasoning": "Strong performance on tabular data"}
-                ],
+                "recommended_models": base_models,
                 "evaluation_metrics": ["mae", "mse", "rmse", "r2"]
             }
         else:  # survival
+            base_models = [
+                {"name": "cox_ph", "priority": 1, "reasoning": "Standard survival analysis baseline"},
+                {"name": "coxnet", "priority": 2, "reasoning": "Regularized Cox model for high-dimensional data"},
+                {"name": "random_survival_forest", "priority": 3, "reasoning": "Non-parametric survival model"},
+                {"name": "deepsurv", "priority": 4, "reasoning": "Deep learning for complex non-linear relationships"}
+            ]
+            
+            # EDA often recommends specific survival models based on data characteristics
+            if eda_recommended:
+                for model in base_models:
+                    if any(rec in model["name"] for rec in eda_recommended):
+                        model["priority"] = max(1, model["priority"] - 1)
+                        model["reasoning"] += " [EDA-recommended]"
+                
+                base_models = sorted(base_models, key=lambda x: x["priority"])
+            
             return {
-                "recommended_models": [
-                    {"name": "cox_ph", "priority": 1, "reasoning": "Standard survival analysis baseline"},
-                    {"name": "coxnet", "priority": 2, "reasoning": "Regularized Cox model for high-dimensional data"},
-                    {"name": "random_survival_forest", "priority": 3, "reasoning": "Non-parametric survival model"},
-                    {"name": "deepsurv", "priority": 4, "reasoning": "Deep learning for complex non-linear relationships"}
-                ],
+                "recommended_models": base_models,
                 "evaluation_metrics": ["concordance_index", "integrated_brier_score"]
             }
     
