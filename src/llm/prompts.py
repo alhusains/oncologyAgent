@@ -92,7 +92,7 @@ Review the ACTUAL features listed above and suggest:
    - Which specific features should be combined?
    - For NUMERICAL × NUMERICAL: use "multiply" operation (e.g., age × tumor_size)
    - For CATEGORICAL × CATEGORICAL: use "concat" operation (e.g., smoking_status × sex)
-   - For MIXED (num × cat): typically use "multiply" for numeric interaction
+   - For CATEGORICAL × NUMERICAL: use "concat" operation - system will automatically apply smart group encoding to avoid high cardinality
    - Only suggest features that ACTUALLY EXIST in the data above
 
 2. **Mathematical Transformations** (1-4 features):

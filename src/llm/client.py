@@ -58,21 +58,43 @@ class LLMClient:
             "model": self.config.model,
             "messages": messages,
             "temperature": effective_temperature,
-            "max_tokens": max_tokens or self.config.max_tokens,
         }
         
-        if response_format == "json":
-            kwargs["response_format"] = {"type": "json_object"}
+        # GPT-5 uses max_completion_tokens (includes reasoning + output tokens combined)
+        is_gpt5 = self.config.model.startswith("gpt-5")
+        if is_gpt5:
+            base_tokens = max_tokens or self.config.max_tokens
+            kwargs["max_completion_tokens"] = base_tokens * 2  # Account for reasoning overhead
+            kwargs["reasoning_effort"] = self.config.reasoning_effort
+            kwargs["verbosity"] = self.config.verbosity
+        else:
+            kwargs["max_tokens"] = max_tokens or self.config.max_tokens
         
+        if response_format == "json" and not is_gpt5:
+            kwargs["response_format"] = {"type": "json_object"}
+            
         try:
-            # Create the request more explicitly to avoid Pydantic validation issues
-            response = await self.client.chat.completions.create(
-                model=kwargs["model"],
-                messages=kwargs["messages"],
-                temperature=kwargs["temperature"],
-                max_tokens=kwargs["max_tokens"],
-                **({"response_format": kwargs["response_format"]} if "response_format" in kwargs else {})
-            )
+            create_params = {
+                "model": kwargs["model"],
+                "messages": kwargs["messages"],
+                "temperature": kwargs["temperature"],
+            }
+            
+            # Add max tokens parameter
+            if "max_tokens" in kwargs:
+                create_params["max_tokens"] = kwargs["max_tokens"]
+            elif "max_completion_tokens" in kwargs:
+                create_params["max_completion_tokens"] = kwargs["max_completion_tokens"]
+            
+            # Add optional parameters
+            if "response_format" in kwargs:
+                create_params["response_format"] = kwargs["response_format"]
+            if "reasoning_effort" in kwargs:
+                create_params["reasoning_effort"] = kwargs["reasoning_effort"]
+            if "verbosity" in kwargs:
+                create_params["verbosity"] = kwargs["verbosity"]
+            
+            response = await self.client.chat.completions.create(**create_params)
             return response.choices[0].message.content
         except Exception as e:
             raise RuntimeError(f"LLM completion failed: {str(e)}")
@@ -85,11 +107,20 @@ class LLMClient:
     ) -> Dict[str, Any]:
         """Generate completion with JSON response format"""
         
-        json_prompt = f"""
-        {prompt}
-        
-        Please respond in valid JSON format.
-        """
+        # GPT-5 requires stronger JSON format enforcement via prompting
+        if self.config.model.startswith("gpt-5"):
+            json_prompt = f"""
+            {prompt}
+            
+            IMPORTANT: You must respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, 
+            or code blocks. Your entire response must be a single parseable JSON object starting with {{ and ending with }}.
+            """
+        else:
+            json_prompt = f"""
+            {prompt}
+            
+            Please respond in valid JSON format.
+            """
         
         response = await self.complete(
             prompt=json_prompt,
@@ -101,6 +132,14 @@ class LLMClient:
         try:
             return json.loads(response)
         except json.JSONDecodeError as e:
+            # Try to extract JSON from the response
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                try:
+                    return json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    pass
             raise ValueError(f"Invalid JSON response from LLM: {e}")
     
     async def analyze_data_schema(
@@ -110,7 +149,6 @@ class LLMClient:
     ) -> Dict[str, Any]:
         """Analyze data schema and provide recommendations"""
         
-        # Use the proper prompt template
         from ..llm.prompts import PromptTemplates
         
         system_message = """You are a data science expert. Analyze the provided dataset schema and user objective to provide recommendations for ML pipeline."""
