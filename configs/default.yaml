@@ -13,6 +13,12 @@ data:
   test_size: 0.2
   val_size: 0.2
   random_state: 42
+  
+  # Feature selection settings
+  feature_selection_enabled: true
+  variance_threshold: 0.001  # Remove features with variance < 0.001 (lowered from 0.01)
+  correlation_threshold: 0.95  # Remove one from pairs with correlation > 0.95
+  max_features: null  # Maximum features to keep (null = no limit)
 
 ml:
   max_training_time_minutes: 60

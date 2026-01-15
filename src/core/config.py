@@ -16,8 +16,12 @@ class LLMConfig(BaseModel):
     model: str = Field(default="gpt-4o-mini", description="Model name")
     api_key: Optional[str] = Field(default=None, description="API key")
     temperature: float = Field(default=0.1, description="Temperature for generation")
-    max_tokens: int = Field(default=4096, description="Maximum tokens for response")
+    max_tokens: int = Field(default=8192, description="Maximum tokens for response")
     timeout: int = Field(default=300, description="Request timeout in seconds")
+    
+    # GPT-5 specific settings
+    reasoning_effort: str = Field(default="medium", description="Reasoning effort for GPT-5 models (none, low, medium, high)")
+    verbosity: str = Field(default="high", description="Verbosity for GPT-5 models (low, medium, high)")
 
 
 class DataConfig(BaseModel):
@@ -36,6 +40,20 @@ class DataConfig(BaseModel):
     val_size: float = Field(default=0.2, description="Validation set proportion")
     random_state: int = Field(default=42, description="Random state for reproducibility")
     use_preset_CV: bool = Field(default=False, description="Use preset CV column from dataset for cross-validation groups")
+    
+    # Feature selection thresholds
+    feature_selection_enabled: bool = Field(
+        default=True, description="Enable automatic feature selection"
+    )
+    variance_threshold: float = Field(
+        default=0.001, description="Remove features with variance below this threshold"
+    )
+    correlation_threshold: float = Field(
+        default=0.95, description="Remove one feature from pairs with correlation above this threshold"
+    )
+    max_features: Optional[int] = Field(
+        default=None, description="Maximum number of features to keep (None = no limit)"
+    )
 
 
 class MLConfig(BaseModel):
@@ -61,6 +79,16 @@ class MLConfig(BaseModel):
             "regression": ["mae", "mse", "rmse", "r2"]
         },
         description="Metrics for different task types"
+    )
+    
+    # ACE Experiment mode
+    single_model_mode: bool = Field(
+        default=False,
+        description="Train only one model per iteration (for learning model selection strategies)"
+    )
+    default_model: str = Field(
+        default="random_forest",
+        description="Default model to use in single-model mode"
     )
 
 
