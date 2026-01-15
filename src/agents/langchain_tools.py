@@ -38,6 +38,10 @@ class EngineerFeaturesInput(BaseModel):
         default="auto",
         description="Feature engineering strategy: 'auto', 'aggressive', or 'conservative'"
     )
+    basic_only: bool = Field(
+        default=False,
+        description="If True, only perform basic preprocessing (scaling, encoding) without creating new features"
+    )
 
 
 class SelectModelsInput(BaseModel):
@@ -128,6 +132,21 @@ class RefineFeaturesInput(BaseModel):
     )
 
 
+class CreateEnsembleInput(BaseModel):
+    """Input schema for create_ensemble tool"""
+    ensemble_type: str = Field(
+        description="Type of ensemble: For classification use 'voting', 'weighted', 'stacking', 'blending'. For survival use 'averaging', 'weighted', 'median', 'rank', 'stacking'."
+    )
+    models_to_ensemble: Optional[list] = Field(
+        default=None,
+        description="Optional list of model names to include in ensemble. If not provided, uses all trained models."
+    )
+    meta_model_name: Optional[str] = Field(
+        default=None,
+        description="Optional meta-model for stacking (e.g., 'logistic_regression' for classification, 'cox_ph' for survival)"
+    )
+
+
 # ============================================================================
 # Tool Creation Function
 # ============================================================================
@@ -185,24 +204,47 @@ def create_langchain_tools(toolkit: MLToolkit) -> list:
     
     async def engineer_features_async(
         target_variable: Optional[str] = None,
-        strategy: str = "auto"
+        strategy: str = "auto",
+        basic_only: bool = False
     ) -> Dict[str, Any]:
         """
         Apply feature engineering including preprocessing, encoding, and scaling.
+        
+        Args:
+            target_variable: Target variable (unused, auto-detected)
+            strategy: Feature engineering strategy (auto/aggressive/conservative)
+            basic_only: If True, only do basic preprocessing without creating new features
         
         Handles:
         - Classification: Standard preprocessing + class balancing
         - Regression: Standard preprocessing + target scaling
         - Survival: Risk-stratified splitting + censoring handling
         """
-        return await toolkit._engineer_features(target_variable, strategy)
+        # Map strategy to scaling/encoding parameters
+        if strategy == "conservative":
+            scaling = "standard"
+            encoding = "onehot"
+        elif strategy == "aggressive":
+            scaling = "robust"
+            encoding = "onehot"
+        else:  # auto
+            scaling = "standard"
+            encoding = "onehot"
+        
+        return await toolkit._engineer_features(
+            scaling_strategy=scaling,
+            encoding_strategy=encoding,
+            handle_imbalance=False,
+            basic_only=basic_only
+        )
     
     def engineer_features_sync(
         target_variable: Optional[str] = None,
-        strategy: str = "auto"
+        strategy: str = "auto",
+        basic_only: bool = False
     ) -> Dict[str, Any]:
         """Synchronous wrapper for engineer_features"""
-        return asyncio.run(engineer_features_async(target_variable, strategy))
+        return asyncio.run(engineer_features_async(target_variable, strategy, basic_only))
     
     tools.append(StructuredTool(
         name="engineer_features",
@@ -274,6 +316,7 @@ def create_langchain_tools(toolkit: MLToolkit) -> list:
     tools.append(StructuredTool(
         name="train_model",
         description=(
+            "CRITICAL: You MUST actually call this tool to train models. Do NOT pretend to train models without calling this tool. "
             "Train a specific ML model. For classification, 'autogluon' trains an AutoML ensemble (recommended). "
             "For individual models, supports logistic_regression, xgboost, lightgbm, catboost, random_forest. "
             "For survival analysis: cox_ph, random_survival_forest, gradient_boosting_survival, deepsurv. "
@@ -547,6 +590,48 @@ def create_langchain_tools(toolkit: MLToolkit) -> list:
         func=refine_features_sync,
         coroutine=refine_features_async,
         args_schema=RefineFeaturesInput
+    ))
+    
+    # ========================================================================
+    # Tool 12: Create Ensemble
+    # ========================================================================
+    
+    async def create_ensemble_async(
+        ensemble_type: str,
+        models_to_ensemble: Optional[list] = None,
+        meta_model_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create an ensemble model from trained models.
+        
+        Combines multiple models to potentially improve performance.
+        Works for both classification and survival tasks.
+        """
+        return await toolkit._create_ensemble(ensemble_type, models_to_ensemble, meta_model_name)
+    
+    def create_ensemble_sync(
+        ensemble_type: str,
+        models_to_ensemble: Optional[list] = None,
+        meta_model_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Synchronous wrapper for create_ensemble"""
+        return asyncio.run(create_ensemble_async(ensemble_type, models_to_ensemble, meta_model_name))
+    
+    tools.append(StructuredTool(
+        name="create_ensemble",
+        description=(
+            "CRITICAL: You MUST actually call this tool to create an ensemble. Do NOT claim to create ensembles without calling this tool. "
+            "Create an ensemble model by combining multiple trained models. "
+            "This often improves performance beyond any single model. "
+            "For classification: use 'voting' (simple average), 'weighted' (by CV score), 'stacking' (meta-model), 'blending'. "
+            "For survival: use 'averaging', 'weighted', 'median', 'rank', 'stacking'. "
+            "You need at least 2 trained models. "
+            "Use this after training multiple models to potentially boost performance. "
+            "The ensemble will be saved as a new model that can be evaluated."
+        ),
+        func=create_ensemble_sync,
+        coroutine=create_ensemble_async,
+        args_schema=CreateEnsembleInput
     ))
     
     return tools
