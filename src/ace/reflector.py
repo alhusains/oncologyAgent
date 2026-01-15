@@ -405,18 +405,22 @@ class TrajectoryReflector:
         
         summary = self._build_trajectory_summary(trajectory)
         
-        prompt = f"""Analyze this ML experiment trajectory and extract lessons.
+        prompt = f"""Analyze this ML experiment trajectory and extract ACCURATE lessons.
 
-TRAJECTORY:
+TRAJECTORY FACTS:
 {summary}
+
+IMPORTANT RULES:
+1. Use ONLY information from the trajectory above - do NOT make up model names or features
+2. Use the EXACT task_type shown (survival/classification/regression)
+3. Use the EXACT sample count shown
+4. If a model name is mentioned, use it exactly (e.g., cox_ph, random_survival_forest)
+5. Do NOT invent terms like "chat_interaction" or similar
 
 EXISTING KNOWLEDGE:
 {playbook_context or "None"}
 
-Extract 1-3 KEY lessons. Focus on:
-1. What specific decisions helped/hurt?
-2. What generalizable patterns emerge?
-3. What domain-specific (oncology) insights apply?
+Extract 1-3 KEY lessons based on ACTUAL changes in the trajectory.
 
 Return JSON:
 {{
@@ -424,14 +428,20 @@ Return JSON:
         {{
             "type": "success_pattern|failure_pattern|improvement_insight|warning",
             "domain": "feature_interaction|model_selection|preprocessing|clinical_pattern",
-            "title": "Short title",
-            "summary": "One sentence summary",
-            "conditions": {{"task_type": "...", "cancer_type": "..."}},
+            "title": "Short factual title",
+            "summary": "One sentence using ONLY facts from trajectory",
+            "conditions": {{"task_type": "<use exact task_type from trajectory>", "cancer_type": "..."}},
             "confidence": 0.5-0.9,
-            "recommendation": "What to do"
+            "recommendation": "What to do based on evidence"
         }}
     ]
 }}
+
+Example good lesson:
+{{"title": "Cox PH effective for survival", "summary": "Cox proportional hazards achieved 0.80 concordance index on breast cancer survival data with 4294 samples", "conditions": {{"task_type": "survival", "cancer_type": "breast"}}}}
+
+Example BAD lesson (do not do this):
+{{"title": "chat_interaction improved performance", "summary": "For classification with ~0 samples..."}} <- WRONG! Makes up terms and wrong numbers
 """
         
         try:

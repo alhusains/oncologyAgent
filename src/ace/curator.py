@@ -10,8 +10,16 @@ from datetime import datetime
 from pathlib import Path
 import json
 import uuid
+import os
+import numpy as np
 
 from .schemas import Playbook, PlaybookDomain, DeltaItem, Lesson, LessonType
+
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 
 class PlaybookCurator:
@@ -20,9 +28,16 @@ class PlaybookCurator:
     
     The Curator is responsible for:
     - Converting lessons to structured delta items
-    - Merging new items with existing knowledge
+    - Merging new items with existing knowledge (using semantic similarity)
     - Deduplicating and pruning the playbook
     - Persistence and versioning
+    
+    Semantic Similarity (REQUIRED):
+    - Uses OpenAI text-embedding-3-small for robust semantic matching
+    - Handles paraphrasing, synonyms, and meaning-based similarity
+    - Embeddings are cached for efficiency (last 500 in memory)
+    - Requires OPENAI_API_KEY environment variable
+    - Will raise clear errors if embeddings fail (no fallback)
     """
     
     def __init__(
@@ -36,6 +51,32 @@ class PlaybookCurator:
         
         # Similarity threshold for merging (0.8 = 80% similar)
         self.merge_threshold = 0.75
+        
+        # Semantic similarity configuration (REQUIRED)
+        self._embedding_cache: Dict[str, np.ndarray] = {}
+        self._embedding_model = "text-embedding-3-small"
+        
+        # Validate OpenAI availability
+        if not OPENAI_AVAILABLE:
+            raise ImportError(
+                "OpenAI package is required for semantic similarity. "
+                "Install with: pip install openai"
+            )
+        
+        # Initialize OpenAI client (REQUIRED)
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "OPENAI_API_KEY environment variable is required for semantic similarity. "
+                "Set it with: export OPENAI_API_KEY='your-key-here'"
+            )
+        
+        try:
+            self._openai_client = OpenAI(api_key=api_key)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to initialize OpenAI client for semantic similarity: {e}"
+            )
         
         # Load or create playbook
         self.playbook = self._load_or_create()
@@ -216,25 +257,60 @@ class PlaybookCurator:
         similar.sort(key=lambda x: x[0], reverse=True)
         return [item for _, item in similar]
     
-    def _compute_similarity(self, item1: DeltaItem, item2: DeltaItem) -> float:
-        """Compute similarity between two items"""
-        # Title similarity (word overlap)
-        words1 = set(item1.title.lower().split())
-        words2 = set(item2.title.lower().split())
+    def _get_embedding(self, text: str) -> np.ndarray:
+        """Get embedding for text with caching (REQUIRED)"""
+        # Check cache
+        cache_key = text[:200]  # Use first 200 chars as key
+        if cache_key in self._embedding_cache:
+            return self._embedding_cache[cache_key]
         
-        if not words1 or not words2:
-            title_sim = 0.0
-        else:
-            title_sim = len(words1 & words2) / len(words1 | words2)
+        # Get embedding from API
+        try:
+            response = self._openai_client.embeddings.create(
+                model=self._embedding_model,
+                input=text[:8000],  # API limit
+                encoding_format="float"
+            )
+            embedding = np.array(response.data[0].embedding)
+            
+            # Cache it
+            self._embedding_cache[cache_key] = embedding
+            
+            # Limit cache size (keep last 500 embeddings)
+            if len(self._embedding_cache) > 500:
+                oldest_key = next(iter(self._embedding_cache))
+                del self._embedding_cache[oldest_key]
+            
+            return embedding
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to get embedding for similarity computation: {e}\n"
+                f"Check your OpenAI API key and network connection."
+            )
+    
+    def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
+        """Compute cosine similarity between two vectors"""
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
         
-        # Content similarity
-        content_words1 = set(item1.content.lower().split())
-        content_words2 = set(item2.content.lower().split())
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
         
-        if not content_words1 or not content_words2:
-            content_sim = 0.0
-        else:
-            content_sim = len(content_words1 & content_words2) / len(content_words1 | content_words2)
+        return float(dot_product / (norm1 * norm2))
+    
+    def _compute_semantic_similarity(self, item1: DeltaItem, item2: DeltaItem) -> float:
+        """Compute semantic similarity using embeddings (REQUIRED)"""
+        # Combine title and content for rich representation
+        text1 = f"{item1.title} {item1.content}"
+        text2 = f"{item2.title} {item2.content}"
+        
+        # Get embeddings (will raise error if fails)
+        emb1 = self._get_embedding(text1)
+        emb2 = self._get_embedding(text2)
+        
+        # Compute cosine similarity
+        text_sim = self._cosine_similarity(emb1, emb2)
         
         # Condition overlap
         if item1.conditions and item2.conditions:
@@ -244,8 +320,12 @@ class PlaybookCurator:
         else:
             condition_sim = 0.5
         
-        # Weighted combination
-        return 0.4 * title_sim + 0.4 * content_sim + 0.2 * condition_sim
+        # Weighted combination (semantic gets more weight)
+        return 0.8 * text_sim + 0.2 * condition_sim
+    
+    def _compute_similarity(self, item1: DeltaItem, item2: DeltaItem) -> float:
+        """Compute semantic similarity between two items using embeddings"""
+        return self._compute_semantic_similarity(item1, item2)
     
     def _merge_items(self, existing: DeltaItem, new: DeltaItem, lesson: Lesson):
         """Merge new item into existing"""

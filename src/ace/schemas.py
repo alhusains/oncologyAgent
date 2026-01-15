@@ -27,6 +27,7 @@ class ActionType(str, Enum):
     ERROR_ANALYSIS = "error_analysis"
     FEATURE_REFINEMENT = "feature_refinement"
     HYPERPARAMETER_TUNING = "hyperparameter_tuning"
+    ENSEMBLE_CREATION = "ensemble_creation"
     INTERPRETABILITY = "interpretability"
 
 

@@ -490,6 +490,10 @@ Return JSON:
         # Reset to baseline
         await self._reset_to_baseline(toolkit)
         
+        # Track best score from applied changes
+        best_score_from_changes = self._baseline_state.get("best_score", 0)
+        best_model_from_changes = self._baseline_state.get("best_model")
+        
         # Apply each beneficial change
         for result in beneficial_results:
             try:
@@ -498,14 +502,25 @@ Return JSON:
                     "strategy": result.change_details.get("strategy", ""),
                     "description": result.change_description
                 }
-                await self._apply_change(toolkit, candidate)
+                score = await self._apply_change(toolkit, candidate)
+                
+                # Track if this change improved the score
+                if score > best_score_from_changes:
+                    best_score_from_changes = score
+                    best_model_from_changes = toolkit.state.get("best_model")
+                    
             except Exception as e:
                 print(f"    Warning: Could not apply change '{result.change_description}': {e}")
         
-        # Update baseline state
+        # Update toolkit state with best results from applied changes
+        toolkit.state["best_score"] = best_score_from_changes
+        if best_model_from_changes:
+            toolkit.state["best_model"] = best_model_from_changes
+        
+        # Update baseline state to new state after changes
         self._baseline_state = self._capture_state(toolkit)
         
-        return toolkit.state.get("best_score", 0)
+        return best_score_from_changes
     
     async def _reset_to_baseline(self, toolkit):
         """Reset toolkit state to baseline"""
@@ -536,12 +551,41 @@ Return JSON:
         data_analysis = toolkit.state.get("data_analysis") or {}
         feature_result = toolkit.state.get("feature_result") or {}
         
+        # Get task type correctly (survival, classification, or regression)
+        task_type = feature_result.get("task_type") or data_analysis.get("task_type")
+        if not task_type:
+            # Infer from data if not explicitly set
+            if "time_variable" in data_analysis or "survival_time" in str(data_analysis):
+                task_type = "survival"
+            else:
+                task_type = "classification"  # Conservative default
+        
+        # Get dataset info with sample counts - try multiple sources
+        dataset_info = data_analysis.get("dataset_info", {}).copy()
+        
+        # Try to get sample count from multiple possible sources
+        if "n_samples" not in dataset_info or dataset_info["n_samples"] == 0:
+            # Try feature_result first
+            if feature_result and "n_samples_train" in feature_result:
+                dataset_info["n_samples"] = feature_result.get("n_samples_train")
+            # Try data_analysis
+            elif "n_samples" in data_analysis:
+                dataset_info["n_samples"] = data_analysis.get("n_samples")
+            # Try direct from toolkit state
+            elif toolkit and toolkit.state.get("X_train") is not None:
+                import pandas as pd
+                X = toolkit.state.get("X_train")
+                if isinstance(X, pd.DataFrame):
+                    dataset_info["n_samples"] = len(X)
+                elif hasattr(X, "shape"):
+                    dataset_info["n_samples"] = X.shape[0]
+        
         traj = Trajectory(
             experiment_id=self.current_experiment.experiment_id if self.current_experiment else "",
             run_number=iteration,
             parent_trajectory_id=self.current_experiment.baseline_trajectory_id if self.current_experiment else None,
-            dataset_info=data_analysis.get("dataset_info", {}),
-            task_type=feature_result.get("task_type") or data_analysis.get("task_type", "classification"),
+            dataset_info=dataset_info,
+            task_type=task_type,
             baseline_score=self._baseline_state.get("best_score", 0) if self._baseline_state else 0
         )
         
