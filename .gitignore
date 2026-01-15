@@ -101,3 +101,30 @@ dmypy.json
 # Pyre
 .pyre/
 
+# Documentation files (internal development guides)
+CONVERSATIONAL_AGENT_GUIDE.md
+ACE_IMPROVEMENTS_SUMMARY.md
+ENSEMBLE_IMPLEMENTATION_SUMMARY.md
+EXPERIMENT_MODIFICATIONS.md
+FRAMEWORK_FLEXIBILITY_ANALYSIS.md
+GRADIO_GUIDE.md
+IMPLEMENTATION_COMPLETE.md
+QUICK_START_ENSEMBLE.md
+
+# ACE Knowledge base (generated)
+knowledge/
+
+# Experiment results
+experiments/results/
+experiments/test_ensemble.py
+experiments/test_playbook.json
+experiments/EXPERIMENTAL_FRAMEWORK.md
+experiments/QUICK_START.md
+experiments/README.md
+
+# Documentation directory (except main docs)
+docs/
+
+# Utility scripts
+split.py
+test_ace_agent.py
