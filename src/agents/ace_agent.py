@@ -327,6 +327,9 @@ Return JSON:
             if self._should_trigger_reflection():
                 await self._trigger_reflection()
         
+        # DEBUG: Show state after chat processing
+        print(f"  [DEBUG] End of chat. Trained models: {list(self.toolkit.state['trained_models'].keys())}")
+        
         return response
     
     def _is_improvement_request(self, message: str) -> bool:
@@ -506,6 +509,8 @@ Return JSON:
             action_type = ActionType.DATA_ANALYSIS
         elif "feature" in message_lower or "engineer" in message_lower:
             action_type = ActionType.FEATURE_ENGINEERING
+        elif "ensemble" in message_lower or "combine" in message_lower or "stacking" in message_lower:
+            action_type = ActionType.ENSEMBLE_CREATION
         elif "train" in message_lower or "model" in message_lower:
             action_type = ActionType.MODEL_TRAINING
         elif "evaluate" in message_lower or "test" in message_lower:

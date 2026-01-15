@@ -313,6 +313,7 @@ Available tools:
 - select_models: Choose which models to train
 - train_model: Train a specific model
 - evaluate_model: Test model performance
+- create_ensemble: Combine multiple trained models for improved performance
 - analyze_errors: Understand which predictions failed and why
 - get_feature_importance: See which features matter most
 - get_current_state: Check progress
@@ -327,13 +328,21 @@ STRATEGY for larger datasets:
 1. Try multiple model types
 2. Use error analysis to improve
 3. Iterate based on performance
+4. Consider ensembles if multiple models are trained
+
+ENSEMBLE METHODS:
+- After training 2+ models, you can create ensembles to boost performance
+- Use 'weighted' for simple averaging by CV score (recommended first try)
+- Use 'stacking' for meta-model combinations (more sophisticated)
+- Works for both classification and survival tasks
 
 PROCESS:
 1. Always start with analyze_data
 2. Then engineer_features
 3. Select and train models (start with simpler ones for small data)
 4. Evaluate on test set
-5. Get feature importance for the best model (helps understand what drives predictions)
+5. OPTIONAL: Create ensemble if multiple models trained and more performance gain needed
+6. Get feature importance for the best model (helps understand what drives predictions)
 6. If performance is poor (<0.7), analyze_errors and iterate
 7. When satisfied or out of ideas, provide a final summary
 

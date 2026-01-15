@@ -130,7 +130,13 @@ class ConversationalMLAgent:
         - Wait for user instruction after each step
         - Be conversational and helpful
         """
-        return """You are an expert ML assistant for interactive data analysis and model building.
+        
+        # Add single-model mode instruction if enabled
+        single_model_note = ""
+        if self.config.ml.single_model_mode:
+            single_model_note = "\n\nIMPORTANT: SINGLE MODEL MODE IS ENABLED. Train only ONE model per iteration. The playbook will guide model selection."
+        
+        return f"""You are an expert ML assistant for interactive data analysis and model building.{single_model_note}
 
 IMPORTANT BEHAVIOR:
 - Execute ONLY what the user requests in their message
@@ -144,11 +150,13 @@ Available tools:
 3. select_models - Get model recommendations for the task
 4. train_model - Train a specific model
 5. evaluate_model - Test model performance on test set
-6. analyze_errors - Deep dive into prediction errors
-7. get_feature_importance - See which features drive predictions
-8. get_current_state - Check what's been done so far
-9. get_data_insights - Comprehensive data analysis and statistics
-10. generate_interpretability_report - Create PDF report with SHAP values and clinical guidance
+6. create_ensemble - Combine multiple trained models for better performance
+7. analyze_errors - Deep dive into prediction errors
+8. get_feature_importance - See which features drive predictions
+9. get_current_state - Check what's been done so far
+10. get_data_insights - Comprehensive data analysis and statistics
+11. generate_interpretability_report - Create PDF report with SHAP values and clinical guidance
+12. refine_features - Improve feature engineering based on performance feedback
 
 EXAMPLE INTERACTIONS:
 
@@ -166,6 +174,9 @@ You: Call evaluate_model, show metrics, STOP and wait
 
 User: "Generate interpretability report"
 You: Call generate_interpretability_report, provide report path, STOP
+
+User: "Create an ensemble of the trained models"
+You: Call create_ensemble, report performance improvement, STOP
 
 User: "Conduct full classification analysis"
 You: Execute full pipeline (analyze → engineer → select → train → evaluate)
@@ -186,7 +197,10 @@ Remember: You're an interactive assistant, not an autonomous agent. Follow the u
         dataset_path: str,
         testset_path: Optional[str] = None,
         objective: Optional[str] = None,
-        use_preset_CV: bool = False
+        use_preset_CV: bool = False,
+        variance_threshold: Optional[float] = None,
+        correlation_threshold: Optional[float] = None,
+        max_features: Optional[int] = None
     ):
         """
         Set the dataset for this session.
@@ -198,17 +212,32 @@ Remember: You're an interactive assistant, not an autonomous agent. Follow the u
             testset_path: Optional path to test dataset
             objective: Optional ML objective description
             use_preset_CV: Whether to use preset CV column from dataset
+            variance_threshold: Override variance threshold for feature selection (default from config)
+            correlation_threshold: Override correlation threshold for feature selection (default from config)
+            max_features: Override max features to keep (default from config)
         """
         self.toolkit.state["dataset_path"] = dataset_path
         self.toolkit.state["testset_path"] = testset_path
         self.toolkit.state["objective"] = objective or "ML analysis"
         self.config.data.use_preset_CV = use_preset_CV
         
+        # Override feature selection thresholds if provided
+        if variance_threshold is not None:
+            self.config.data.variance_threshold = variance_threshold
+        if correlation_threshold is not None:
+            self.config.data.correlation_threshold = correlation_threshold
+        if max_features is not None:
+            self.config.data.max_features = max_features
+        
         print(f"\n📂 Dataset configured:")
         print(f"   Training: {dataset_path}")
         if testset_path:
             print(f"   Testing: {testset_path}")
         print(f"   Objective: {objective or 'Not specified'}")
+        print(f"\n🔧 Feature Selection Settings:")
+        print(f"   Variance threshold: {self.config.data.variance_threshold}")
+        print(f"   Correlation threshold: {self.config.data.correlation_threshold}")
+        print(f"   Max features: {self.config.data.max_features or 'No limit'}")
     
     async def chat(self, user_message: str) -> str:
         """
